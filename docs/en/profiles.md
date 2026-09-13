@@ -32,10 +32,21 @@ Scenarios have search and groups for direct connections, proxy/CDN, multiple inb
 
 1. Enter a descriptive name, such as `EU · Reality`.
 2. Choose a scenario or import JSON up to 512 KiB. Unknown fields in the complete document are preserved.
-3. Complete **Parameters**. Enter `serverNames` and `shortIds` as JSON arrays, for example `["vpn.example.com"]` and `["0123456789abcdef"]`.
-4. Use **Generate missing keys** if needed. It generates missing Reality and Shadowsocks 2022 server keys without replacing existing keys. You supply domains, targets, certificates and upstream server credentials.
-5. Open **JSON** to review the entire document. Switching back to the form preserves other fields.
-6. Select **Validate**. Unfilled parameter buttons take you to their fields. Correct errors before creating the profile.
+3. Complete the plain-language fields in **Parameters**. For REALITY these are **Camouflage website** and **Connection port**. Enter a domain or HTTPS origin without a page path. The panel adds destination port 443 and fills the connection server name. Include a port after the domain if the destination uses a different port.
+4. Select **Validate**. Missing REALITY and Shadowsocks 2022 keys are generated automatically; existing keys are kept. Errors use field names and let you jump to the affected input.
+5. Open **Advanced settings** when needed: internal connection names, listen addresses, keys and separate server names (SNI) live there. Enter lists one value per line or separated by commas; the previous JSON array format is also accepted. Manually chosen server names and multi-name lists are preserved when the camouflage website changes.
+6. Use **JSON** for a custom configuration. Switching between the form and JSON preserves unknown fields and unchanged values. Exact field paths are under **Advanced settings → Field locations in JSON**.
+7. After validation passes, select **Create profile**. Scenarios using certificates, reverse proxies or upstream servers require you to supply those settings and credentials.
+
+### Choosing a REALITY website
+
+The **Camouflage website** is a public HTTPS website that your VPN server can reach. REALITY does not require buying your own domain or issuing a certificate. Choose a site supporting TLS 1.3 and HTTP/2 and check it from the node itself. The `example.com` hint illustrates the input format; it is not an automatically selected or verified destination.
+
+The wizard derives two related values from your domain: the destination address and port (`target`), and the connection server name (`serverNames`, SNI). Imported profiles using the previous `dest` field keep that field. Custom SNI names must be covered by the chosen website’s certificate. Use full JSON for unusual destinations such as local sockets.
+
+The **Connection port** is the port on your VPN server that customers connect to. It is usually 443, but must be available. This is separate from the camouflage website’s port.
+
+Configuration validation does not perform a network test of the chosen website or prove VPN connectivity. After assigning the profile to a node, test it in a client application. See the [REALITY documentation](https://xtls.github.io/config/transports/reality.html) for destination and server name requirements.
 
 Choosing another scenario after editing requires confirmation before replacing the draft. Importing a document does not deploy it.
 

@@ -12,9 +12,12 @@
 .impeccable/
 /web/sn-*-linux-*
 
-# Local visual harnesses contain environment snapshots; only the public docs check ships.
+# Local visual harnesses contain environment snapshots; public checks are listed explicitly.
 /devtools/*
 !/devtools/check-docs.py
+!/devtools/tests/
+/devtools/tests/*
+!/devtools/tests/profile-form.test.cjs
 /docs/design/
 /docs/repository-preparation.md
 __pycache__/

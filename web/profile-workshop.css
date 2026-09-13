@@ -13,3 +13,26 @@
 
 .pw-file-native{position:absolute;width:1px;height:1px;opacity:0;overflow:hidden;clip-path:inset(50%)}
 .pw-file-button{justify-content:center;cursor:pointer;width:fit-content}.pw-result .btn{margin:6px 6px 0 0;overflow-wrap:anywhere;white-space:normal;text-align:left}
+
+/* Keep the common path short; protocol internals remain available on demand. */
+#pwFields[hidden],#pwAdvanced[hidden]{display:none}
+.pw-field-group{margin:24px 0 8px;min-width:0}
+.pw-field-group h3{font-size:15px;line-height:1.5;margin:0 0 16px;color:var(--text)}
+.pw-fields small{font-size:12px;line-height:1.55}
+.pw-fields .field:has([data-param]){margin-bottom:18px}
+.pw-fields .inp{min-width:0;width:100%;box-sizing:border-box}
+.pw-list{resize:vertical;min-height:76px;line-height:1.5}
+.pw-advanced{border:1px solid var(--border);border-radius:12px;padding:16px 18px;margin-top:8px}
+.pw-advanced>summary,.pw-requirements>summary{cursor:pointer;font-size:13px;font-weight:600;color:var(--text);line-height:1.6}
+.pw-advanced>summary small{display:block;margin-top:4px;font-size:12px;font-weight:400;color:var(--text-2)}
+.pw-advanced[open]>summary{margin-bottom:16px}
+.pw-requirements{border:0;border-radius:0;padding:0;margin:18px 0;font-size:12px;line-height:1.65}
+.pw-requirements p{margin:12px 0}
+.pw-technical{margin-top:16px;font-size:12px;line-height:1.65;overflow-wrap:anywhere}
+.pw-technical summary{cursor:pointer;color:var(--text-2)}
+.pw-technical p{padding:8px 0;border-bottom:1px solid var(--border)}
+.pw-field-error{color:var(--err)}
+.pw-field-error:empty{display:none}
+#pwInbounds{font-size:12px;line-height:1.6;color:var(--text-2);margin-top:14px}
+.pw-toolbar [aria-pressed=true]{background:var(--accent-dim);border-color:var(--accent);color:var(--accent)}
+@media(max-width:650px){.pw-advanced{padding:14px}.pw-field-group{margin-top:18px}.pw-fields small{font-size:12px}}

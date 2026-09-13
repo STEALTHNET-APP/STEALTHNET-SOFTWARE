@@ -17,5 +17,6 @@ doctor:
 	@stealthnet doctor
 
 test-release:
+	@node --test devtools/tests/profile-form.test.cjs
 	@python3 -m unittest discover -s deploy/tests -v
 	@bash -n install.sh update.sh deploy/migrate.sh
