@@ -15,7 +15,14 @@ jobs:
           persist-credentials: false
       - run: |
           sudo apt-get update -qq
-          sudo apt-get install -y --no-install-recommends pkg-config libssl-dev caddy
+          sudo apt-get install -y --no-install-recommends pkg-config libssl-dev curl ca-certificates gnupg
+          # Match the installer: Ubuntu 22.04 needs Caddy's signed repository.
+          curl --proto '=https' --tlsv1.2 -fsSL https://dl.cloudsmith.io/public/caddy/stable/gpg.key -o /tmp/sn-caddy.asc
+          sudo gpg --batch --yes --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg /tmp/sn-caddy.asc
+          echo 'deb [signed-by=/usr/share/keyrings/caddy-stable-archive-keyring.gpg] https://dl.cloudsmith.io/public/caddy/stable/deb/debian any-version main' | sudo tee /etc/apt/sources.list.d/caddy-stable.list
+          sudo chmod 644 /usr/share/keyrings/caddy-stable-archive-keyring.gpg /etc/apt/sources.list.d/caddy-stable.list
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends caddy
           rustup toolchain install 1.98.1 --profile minimal
           rustup default 1.98.1
           make test-release
