@@ -88,7 +88,7 @@ def validate_release(directory):
     if not TAG.fullmatch(str(manifest.get('version', ''))) or manifest.get('layout') != 1 or manifest.get('arch') != arch:
         raise InstallError('Релиз не подходит для этого сервера.')
     files = manifest.get('files', {})
-    required = [f'bin/{name}' for name in BINS] + ['web/index.html','web/miniapp-unavailable.html','install.sh','deploy/installer.py','deploy/migrate.sh','deploy/pg-env.py','db/migrations/001_init.sql']
+    required = [f'bin/{name}' for name in BINS] + ['web/index.html','web/app.css','web/core.js','web/miniapp-unavailable.html','install.sh','deploy/installer.py','deploy/migrate.sh','deploy/pg-env.py','db/migrations/001_init.sql']
     required += [f'web/{name}-linux-{a}' for a in ('amd64','arm64') for name in ('sn-node','sn-sub','sn-cabinet')]
     if not isinstance(files, dict) or not all(name in files for name in required):
         raise InstallError('Релиз неполный: отсутствуют обязательные файлы.')
@@ -366,7 +366,8 @@ def caddy_config(c):
         root * {ROOT}/shared/public
         file_server
     }}
-    handle /app* {{
+    @sn_miniapp path /app /app/*
+    handle @sn_miniapp {{
         root * {ROOT}/current/web
         rewrite * /miniapp-unavailable.html
         file_server
@@ -424,6 +425,27 @@ def configure_proxy(c):
         else: atomic(snippet,old_snippet,0o644)
         raise
 
+def repair_proxy(c, *, main=Path('/etc/caddy/Caddyfile'), snippet=Path('/etc/caddy/stealthnet/panel.caddy')):
+    # Upgrade only the installer-owned legacy matcher. Retain operator edits,
+    # unrelated sites and external proxies; update() already backs up Caddy.
+    if c['proxy']!='caddy' or not snippet.is_file(): return False
+    before=snippet.read_text()
+    if not before.startswith('# Managed by STEALTHNET; other Caddy sites are left intact.\n'): return False
+    legacy=re.compile(r'(?m)^([ \t]*)handle /app\* \{[ \t]*$')
+    if not legacy.search(before): return False
+    candidate=legacy.sub(lambda m: m[1]+'@sn_miniapp path /app /app/*\n'+m[1]+'handle @sn_miniapp {',before)
+    mode=stat.S_IMODE(snippet.stat().st_mode)
+    atomic(snippet,candidate,mode)
+    try:
+        run(['caddy','validate','--config',str(main),'--adapter','caddyfile'])
+        run(['systemctl','reload','caddy'])
+    except Exception:
+        atomic(snippet,before,mode)
+        run(['systemctl','reload','caddy'],check=False)
+        raise
+    ui('  ✓ Исправлена выдача стилей панели; настройки Caddy сохранены.','32')
+    return True
+
 def health_error(error):
     # URL errors wrap the useful socket/TLS error. Do not print arbitrary
     # server responses or exception text: either can contain credentials.
@@ -461,6 +483,21 @@ def json_request(url, expected, *, attempts=30):
         if _+1<attempts: time.sleep(1)
     raise InstallError(f'Не прошла проверка {url}: {last}.')
 
+def web_assets(base_url, directory):
+    for name, types in (('app.css',('text/css',)),('core.js',('text/javascript','application/javascript'))):
+        expected=(directory/name).read_bytes()
+        url=base_url+'/'+name+'?sn_check='+hashlib.sha256(expected).hexdigest()[:16]
+        try:
+            with urllib.request.urlopen(url,timeout=10) as response:
+                content_type=response.headers.get_content_type()
+                body=response.read(len(expected)+1)
+        except Exception as error:
+            raise InstallError(f'Не прошла проверка {url}: {health_error(error)}.') from None
+        if content_type not in types or body!=expected:
+            raise InstallError(f'Панель неверно отдаёт {name}. Проверьте маршруты Caddy: '
+                'правило Mini App должно включать только /app и /app/*; /app.css должен отдаваться как text/css. '
+                'Также проверьте каталог статики и кэш reverse proxy.')
+
 def health(c, values, public=True):
     for svc in SERVICES:
         if svc=='bot' and not values.get('BOT_TOKEN'): continue
@@ -479,6 +516,7 @@ def health(c, values, public=True):
             except Exception as error:
                 raise InstallError(f'Не прошла проверка {url}: {health_error(error)}.') from None
             if b'<!doctype html' not in html.lower(): raise InstallError('Панель не отдаёт HTML.')
+            web_assets('https://'+c['panel_domain'],ROOT/'current/web')
         except InstallError as error:
             raise InstallError(str(error)+'\n'
                 'Локальные службы, API и база прошли проверку. Ошибка относится к публичному адресу.\n'
@@ -571,6 +609,7 @@ def update(args, manifest):
     step('2/4','Сохраняем базу данных и настройки',lambda:backup(values,c))
     try:
         step('3/4','Применяем миграции и переключаем службы',lambda:(run(['bash',dest/'deploy/migrate.sh'],env=db_env(values)),switch(dest),restart(values)))
+        repair_proxy(c)
         step('4/4','Проверяем новую версию',lambda:health(c,values))
     except Exception:
         switch(old); restart(values)

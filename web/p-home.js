@@ -206,10 +206,18 @@ registerPage({
         <div id="loginErr" style="display:none;background:color-mix(in srgb, var(--err) 10%, transparent);border:1px solid color-mix(in srgb, var(--err) 30%, transparent);color:var(--err-ink);border-radius:9px;padding:9px 12px;font-size:12px;margin-bottom:12px"></div>
         <button class="btn primary" style="width:100%;justify-content:center" id="loginBtn">Войти</button>
       </div>
-      <p style="font-size:10.5px;color:var(--text-3);text-align:center;margin-top:20px" class="mono">STEALTHNET v0.1.0 · стенд</p>
+      <p id="loginBuild" style="font-size:10.5px;color:var(--text-3);text-align:center;margin-top:20px" class="mono">STEALTHNET</p>
     </div>`;
   },
   bind(root){
+    const build=root.querySelector('#loginBuild');
+    fetch('/api/health',{cache:'no-store'})
+      .then(response=>response.ok?response.json():null)
+      .then(health=>{
+        if(build.isConnected && /^\d+\.\d+\.\d+(?:-[A-Za-z0-9.-]+)?$/.test(health?.version||'')) {
+          build.textContent='STEALTHNET v'+health.version;
+        }
+      }).catch(()=>{});
     const err = (msg)=>{
       const box = root.querySelector('#loginErr');
       box.textContent = msg; box.style.display = 'block';

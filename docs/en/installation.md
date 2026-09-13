@@ -87,6 +87,19 @@ The version button in the admin header shows build metadata and checks stable Gi
 
 ## Interrupted setup
 
+### The panel opens without styling
+
+Releases before **0.1.7** could match `/app.css` with Caddy's `/app*` route and return the Mini App placeholder. Browsers reported `MIME type ('text/html') is not a supported stylesheet`. Update the installed panel as root:
+
+```bash
+cd /opt/stealthnet-software
+make update VERSION=v0.1.7
+```
+
+The update creates a backup and repairs the legacy rule in installer-managed configuration while preserving other settings. Afterwards, reload the browser without cached content (`Ctrl+F5` / `Cmd+Shift+R`). For a custom reverse proxy, match `/app` and `/app/*` without intercepting `/app.css`. New installations and updates check the main CSS and JavaScript content types and contents before reporting success. The login page displays the API version without a staging label.
+
+### Diagnose incomplete setup
+
 Inspect `/var/log/stealthnet/install-<timestamp>.log` and `journalctl -u sn-api -n 100 --no-pager`. Fix the cause and repeat the same command. Pending configuration preserves the original keys and database settings. Do not delete `.env` or `.install-pending.json` to restart blindly.
 
 | Problem | Check |
@@ -129,7 +142,7 @@ chmod 600 /root/install.json
 bash /root/stealthnet-install.sh --config /root/install.json
 ```
 
-With `proxy: "external"`, the installer leaves your proxy/firewall alone, checks local services and writes `/opt/stealthnet-software/Caddyfile.example`. You configure and verify public HTTPS. Serve `current/web`, proxy `/api/*` to `127.0.0.1:8080` and the subscription domain to `127.0.0.1:8081`. The panel’s `/app*` path must serve the Mini App unavailable page. Use the generated Caddy example for the complete path and header rules.
+With `proxy: "external"`, the installer leaves your proxy/firewall alone, checks local services and writes `/opt/stealthnet-software/Caddyfile.example`. You configure and verify public HTTPS. Serve `current/web`, proxy `/api/*` to `127.0.0.1:8080` and the subscription domain to `127.0.0.1:8081`. The panel’s `/app` and `/app/*` paths must serve the Mini App unavailable page. Use the generated Caddy example for the complete path and header rules.
 
 If GitHub is inaccessible, transfer the published archive and checksum over a trusted channel, verify the external SHA256, safely extract it and run `python3 <release>/deploy/installer.py install --release-dir <release> --config /root/install.json`. The installer also verifies its internal manifest.
 

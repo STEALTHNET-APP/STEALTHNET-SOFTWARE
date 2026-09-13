@@ -988,7 +988,6 @@ const DICT = {
   "Стратегия сброса трафика": "Traffic reset strategy",
   "Трафик участников сквада": "Traffic of squad members",
   "— правила не применятся.": "— the rules will not be applied.",
-  "STEALTHNET v0.1.0 · стенд": "STEALTHNET v0.1.0 · stand",
   "Август: скидка на годовые": "August: discount on annual plans",
   "Все уведомления прочитаны": "All notifications read",
   "Изменить несколько хостов": "Change several hosts",

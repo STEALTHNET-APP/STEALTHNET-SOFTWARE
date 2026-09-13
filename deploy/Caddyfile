@@ -5,7 +5,8 @@
 		reverse_proxy api:8080
 	}
 	# Клиентское приложение обслуживает только установленный sn-cabinet.
-	handle /app* {
+	@sn_miniapp path /app /app/*
+	handle @sn_miniapp {
 		root * /srv/web
 		rewrite * /miniapp-unavailable.html
 		file_server

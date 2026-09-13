@@ -60,7 +60,7 @@ class InstallerTests(unittest.TestCase):
             self.assertEqual(I.db_env({'DATABASE_URL':'postgres://owner:secret@localhost/db'})['PGPASSWORD'],'secret')
         self.assertEqual(set(self.root.iterdir()),before)
     def release(self):
-        files=[f'bin/{n}' for n in I.BINS]+['web/index.html','web/miniapp-unavailable.html','install.sh','deploy/installer.py','deploy/migrate.sh','deploy/pg-env.py','db/migrations/001_init.sql']
+        files=[f'bin/{n}' for n in I.BINS]+['web/index.html','web/app.css','web/core.js','web/miniapp-unavailable.html','install.sh','deploy/installer.py','deploy/migrate.sh','deploy/pg-env.py','db/migrations/001_init.sql']
         files += [f'web/{n}-linux-{a}' for a in ('amd64','arm64') for n in ('sn-node','sn-sub','sn-cabinet')]
         for n in files:
             p=self.root/n;p.parent.mkdir(parents=True,exist_ok=True);p.write_text('fixture '+n)
@@ -87,7 +87,7 @@ class InstallerTests(unittest.TestCase):
         with patch.object(I.os,'geteuid',return_value=0),self.assertRaises(I.InstallError):I.private_json(p)
     def test_caddy_separates_apps_and_local_services(self):
         config=I.caddy_config(self.c)
-        self.assertIn('handle /app*',config);self.assertIn('/miniapp-unavailable.html',config)
+        self.assertIn('@sn_miniapp path /app /app/*',config);self.assertIn('/miniapp-unavailable.html',config)
         self.assertIn('reverse_proxy 127.0.0.1:8080',config);self.assertIn('reverse_proxy 127.0.0.1:8081',config)
         self.assertNotIn('auto_https off',config)
         self.assertIn('handle_path /custom/*',config)
@@ -117,6 +117,16 @@ class InstallerTests(unittest.TestCase):
         with patch.object(I,'ROOT',self.root):
             I.public_storage();logo=self.root/'shared/public/logo.svg';logo.write_text('custom')
             I.public_storage();self.assertEqual(logo.read_text(),'custom')
+    def test_update_repairs_proxy_after_backup_before_readiness(self):
+        root=self.root/'installed';root.mkdir();old=root/'releases/v0.1.6';old.mkdir(parents=True);(root/'current').symlink_to(old)
+        (root/'installation.json').write_text('{}')
+        new=root/'releases/v0.1.7';new.mkdir()
+        c={'version':'v0.1.6','proxy':'caddy'};values={'DATABASE_URL':'postgres://x:y@localhost/db'}
+        args=type('Args',(),{'release_dir':new})();events=[]
+        with patch.object(I,'ROOT',root),patch.object(I,'private_json',return_value=c),patch.object(I,'read_env',return_value=values),patch.object(I,'stage_release',return_value=new),patch.object(I,'backup',side_effect=lambda *a:events.append('backup')),patch.object(I,'run'),patch.object(I,'restart'),patch.object(I,'repair_proxy',side_effect=lambda *a:events.append('repair')),patch.object(I,'health',side_effect=lambda *a:events.append('health')),patch.object(I,'ui'):
+            I.update(args,{'version':'v0.1.7'})
+        self.assertEqual(events,['backup','repair','health'])
+        self.assertEqual(json.loads((root/'installation.json').read_text())['version'],'v0.1.7')
     def test_same_tag_cannot_replace_binaries(self):
         m=self.release()
         destination=self.root/'installation';(destination/'releases/v0.1.1').mkdir(parents=True)

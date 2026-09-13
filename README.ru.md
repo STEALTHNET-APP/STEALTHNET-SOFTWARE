@@ -14,10 +14,10 @@
 
 **STEALTHNET** — платформа для своего VPN-сервиса: инфраструктура, подписки, продажи и клиентские аккаунты в одной системе. Rust и PostgreSQL, независимые службы, интерфейсы на русском и английском.
 
-**v0.1.6 · установка по SSH, ноды без профиля и проверка конфигураций.**
+**v0.1.7 · исправление стилей панели, обновление и диагностика установки.**
 
 <p>
-  <a href="https://github.com/STEALTHNET-APP/STEALTHNET-SOFTWARE/releases/tag/v0.1.6"><img src="docs/media/navigation/link-ru-02.svg" width="206" height="58" alt="Скачать v0.1.6" /></a>
+  <a href="https://github.com/STEALTHNET-APP/STEALTHNET-SOFTWARE/releases/tag/v0.1.7"><img src="docs/media/navigation/link-ru-02.svg" width="206" height="58" alt="Скачать v0.1.7" /></a>
   <a href="docs/compatibility.md"><img src="docs/media/navigation/link-ru-03.svg" width="247" height="58" alt="Проверенные системы" /></a>
 </p>
 
@@ -77,9 +77,9 @@
 ```bash
 apt-get update
 apt-get install -y git curl ca-certificates
-git clone --branch v0.1.6 --depth 1 https://github.com/STEALTHNET-APP/STEALTHNET-SOFTWARE.git /root/stealthnet-installer
+git clone --branch v0.1.7 --depth 1 https://github.com/STEALTHNET-APP/STEALTHNET-SOFTWARE.git /root/stealthnet-installer
 cd /root/stealthnet-installer
-bash install.sh --version v0.1.6
+bash install.sh --version v0.1.7
 ```
 
 Откроется мастер: укажите домены панели и подписки, название сервиса, валюту и данные владельца. Установщик сам скачает готовый релиз для архитектуры сервера, проверит SHA256 и установит PostgreSQL, системные службы и HTTPS. Компилировать Rust не требуется.
