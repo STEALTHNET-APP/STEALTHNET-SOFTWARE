@@ -28,7 +28,7 @@ for path in paths:
   target=urllib.parse.unquote(href.split('#',1)[0])
   if target and not (path.parent/target).exists():errors.append(f'{path.relative_to(ROOT)}: broken link {href}')
  if '/.qa-runtime' in text or '/Users/mac' in text:errors.append(f'{path.relative_to(ROOT)}: local/private path')
-for svg in (ROOT/'docs/media').glob('*.svg'):
+for svg in (ROOT/'docs/media').rglob('*.svg'):
  try:ET.parse(svg)
  except ET.ParseError as e:errors.append(f'{svg.name}: invalid SVG: {e}')
 for png in (ROOT/'docs/media').glob('*.png'):
