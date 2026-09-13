@@ -41,7 +41,9 @@ bootstrap() {
 }
 say "2/5 · Проверяем панель и ключ ноды"
 bootstrap || die "панель не подтвердила ключ. Проверьте PANEL_URL, доступ к панели и перевыпустите секрет, если он устарел"
-jq -e ' .profile_assigned == true and .inbound_count > 0' "$TMP/bootstrap.json" >/dev/null || die "назначьте ноде профиль и активные инбаунды в панели, затем повторите установку"
+if jq -e '.profile_assigned == true and .inbound_count == 0' "$TMP/bootstrap.json" >/dev/null; then
+  die "выберите активные инбаунды или вариант «Без профиля» в панели, затем повторите установку"
+fi
 XRAY_VERSION=${XRAY_VERSION:-$(jq -r .engine_target "$TMP/bootstrap.json")}
 [[ "$XRAY_VERSION" =~ ^v?[0-9]{1,5}\.[0-9]{1,5}\.[0-9]{1,5}$ ]] || die "в панели указан неверный тег Xray"
 XRAY_VERSION=v${XRAY_VERSION#v}
@@ -187,8 +189,10 @@ for attempt in {1..18}; do
       say "Теперь проверьте доступность порта VPN снаружи и подключение тестового клиента. Логи: journalctl -u sn-node -f"
       exit 0
     fi
-    if jq -e '.profile_assigned == false' "$TMP/bootstrap.json" >/dev/null; then
-      die "агент установлен. Назначьте ноде профиль и активные инбаунды в панели; после этого Xray запустится сам"
+    if jq -e '.idle_ready == true' "$TMP/bootstrap.json" >/dev/null; then
+      say "Готово: агент на связи, нода без профиля. $AGENT_VERSION · Xray ${XRAY_VERSION#v}"
+      say "Ноду можно выбрать для проверки профиля. Чтобы включить VPN, назначьте профиль в панели. Логи: journalctl -u sn-node -f"
+      exit 0
     fi
   fi
 done

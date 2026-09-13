@@ -48,9 +48,13 @@ async fn bootstrap(State(st):State<AppState>,headers:HeaderMap)->Result<Json<Val
  let target:Option<String>=sqlx::query_scalar("SELECT value#>>'{}' FROM settings WHERE key='nodes.engine_version'").fetch_optional(&st.pool).await?.flatten();
  let target=target.filter(|t|!t.is_empty()).unwrap_or_else(||crate::xray_releases::INSTALL_DEFAULT.into());
  if !crate::xray_releases::valid_tag(&target){return Err(Error::bad("В панели задан недопустимый тег Xray"));}
- let row=sqlx::query("SELECT profile_id IS NOT NULL AS profile_assigned,engine_ok,COALESCE(last_seen_at>now()-interval '45 seconds',false) AS recent,status::text AS status,(SELECT count(*) FROM node_inbounds ni WHERE ni.node_id=nodes.id) AS inbound_count FROM nodes WHERE id=$1").bind(id).fetch_one(&st.pool).await?;
+ let row=sqlx::query("SELECT profile_id IS NOT NULL AS profile_assigned,reported_config_version,reported_users_version,engine_ok,COALESCE(last_seen_at>now()-interval '45 seconds',false) AS recent,status::text AS status,(SELECT count(*) FROM node_inbounds ni WHERE ni.node_id=nodes.id) AS inbound_count FROM nodes WHERE id=$1").bind(id).fetch_one(&st.pool).await?;
  if row.get::<String,_>("status")=="disabled" {return Err(Error::bad("Нода отключена в панели. Включите её перед установкой"));}
- Ok(Json(json!({"node_id":id,"name":name,"engine_target":target,"inbound_count":row.get::<i64,_>("inbound_count"),"profile_assigned":row.get::<bool,_>("profile_assigned"),"ready":row.get::<i64,_>("inbound_count")>0&&row.get::<bool,_>("profile_assigned")&&row.get::<bool,_>("engine_ok")&&row.get::<bool,_>("recent")&&row.get::<String,_>("status")=="online"})))
+ let online = row.get::<bool,_>("recent") && row.get::<String,_>("status")=="online";
+ let idle_ready = !row.get::<bool,_>("profile_assigned") && online && row.get::<bool,_>("engine_ok")
+     && row.get::<Option<i32>,_>("reported_config_version")==Some(0)
+     && row.get::<Option<String>,_>("reported_users_version").as_deref()==Some("unassigned");
+ Ok(Json(json!({"node_id":id,"name":name,"engine_target":target,"idle_ready":idle_ready,"inbound_count":row.get::<i64,_>("inbound_count"),"profile_assigned":row.get::<bool,_>("profile_assigned"),"ready":row.get::<i64,_>("inbound_count")>0&&row.get::<bool,_>("profile_assigned")&&row.get::<bool,_>("engine_ok")&&row.get::<bool,_>("recent")&&row.get::<String,_>("status")=="online"})))
 }
 
 #[derive(Deserialize)]
@@ -349,11 +353,17 @@ async fn sync(
     let Some(profile) = profile else {
         return Ok(Json(json!({
             "ok": true,
-            "config_changed": req.config_version != Some(0),
+            "config_changed": req.config_version != Some(0) || req.users_version.as_deref() != Some("unassigned"),
             "config_version": 0,
             "users_version": "unassigned",
             "config": sn_core::service_parts::ensure_service_parts(&json!({"log":{"loglevel":"warning"},"inbounds":[],"outbounds":[{"tag":"direct","protocol":"freedom"}]})).0,
             "users": [],
+            "collect_domains": collect_domains,
+            "plugins": plugins_cfg,
+            "unblock_ips": unblock_ips,
+            "restart_token": restart_token,
+            "engine_target": engine_target,
+            "agent_token": agent_token,
             "note": "ноде не назначен профиль конфигурации",
         })));
     };

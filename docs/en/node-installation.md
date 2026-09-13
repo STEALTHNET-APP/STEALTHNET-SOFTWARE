@@ -35,3 +35,11 @@ Check outbound HTTPS, the node secret, profile JSON and port conflicts if startu
 In the node network tab, select **Check network** to query bgp.tools. The result includes resolved IP, ASN, operator and prefix, with links to route/RPKI information. Lookups are limited in frequency. A proxy address reports the proxy network; ASN information is not a VPN availability test.
 
 Related: [Profiles](sections/profiles.md), [Hosts](sections/hosts.md), [Internal squads](sections/squads-int.md).
+
+## Unassigned nodes and configuration testing
+
+When connecting a server, leave **“No profile”** selected in the Configuration step, even if no profiles exist yet. Install the agent and wait for it to come online. It reports metrics without accepting VPN connections.
+
+For an existing node, open its profile selector, choose **“No profile” → “Apply”**. After synchronization, the agent closes the previous VPN connections. The profile, hosts and squads are retained; this node’s inbound bindings are removed. If the node was used for a rehearsal, that trial finishes and its candidate profile is retained.
+
+Open the profile you want to check → **“Test-node rehearsal”**, select the free online node and start the trial. **“Finish trial”** releases the node again. To return it to service, assign a profile and verify a test client connection. Schedule an interruption before releasing a node that serves customers.

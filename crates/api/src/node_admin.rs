@@ -151,7 +151,8 @@ struct UpdateNode {
     country_code: Option<String>,
     address: Option<String>,
     api_port: Option<i32>,
-    profile_id: Option<i64>,
+    #[serde(default, deserialize_with = "crate::state::patch_field")]
+    profile_id: Option<Option<i64>>,
     inbound_tags: Option<Vec<String>>,
     traffic_multiplier: Option<f64>,
     count_traffic: Option<bool>,
@@ -173,13 +174,23 @@ async fn node_update(
 ) -> Result<Json<Value>> {
     let mut tx = st.pool.begin().await?;
 
+    let old_profile: Option<i64> = sqlx::query_scalar(
+        "SELECT profile_id FROM nodes WHERE id=$1 AND deleted_at IS NULL FOR UPDATE",
+    ).bind(id).fetch_optional(&mut *tx).await?.ok_or(Error::NotFound)?;
+    let profile_changed = b.profile_id.is_some_and(|profile| profile != old_profile);
+    if b.profile_id.flatten().is_some_and(|profile| profile <= 0) {
+        return Err(Error::bad("Выберите профиль или вариант «Без профиля»"));
+    }
+
     let res = sqlx::query(
         "UPDATE nodes
             SET name = COALESCE($2, name),
                 country_code = COALESCE(upper($3), country_code),
                 address = COALESCE($4, address),
                 api_port = COALESCE($5, api_port),
-                profile_id = COALESCE($6, profile_id),
+                profile_id = CASE WHEN $16 THEN $6 ELSE profile_id END,
+                reported_config_version = CASE WHEN $17 THEN NULL ELSE reported_config_version END,
+                reported_users_version = CASE WHEN $17 THEN NULL ELSE reported_users_version END,
                 traffic_multiplier = COALESCE($7, traffic_multiplier),
                 count_traffic = COALESCE($8, count_traffic),
                 notify = COALESCE($9, notify),
@@ -194,7 +205,7 @@ async fn node_update(
     .bind(&b.country_code)
     .bind(b.address.as_deref().map(str::trim))
     .bind(b.api_port)
-    .bind(b.profile_id)
+    .bind(b.profile_id.flatten())
     .bind(b.traffic_multiplier)
     .bind(b.count_traffic)
     .bind(b.notify)
@@ -204,11 +215,21 @@ async fn node_update(
     .bind(b.bill_day.flatten())
     .bind(b.infra_provider_id.is_some())
     .bind(b.bill_day.is_some())
+    .bind(b.profile_id.is_some())
+    .bind(profile_changed)
     .execute(&mut *tx)
     .await?;
 
     if res.rows_affected() == 0 {
         return Err(Error::NotFound);
+    }
+
+    // Releasing/reassigning a test node also ends its rehearsal. Keep the
+    // candidate profile so the administrator can inspect or reuse it.
+    // Lock order is node -> trial, shared with trial_finish.
+    if profile_changed {
+        sqlx::query("UPDATE profile_trials SET state='finished' WHERE node_id=$1 AND state='testing'")
+            .bind(id).execute(&mut *tx).await?;
     }
 
     // Список инбаундов заменяем целиком: частичное обновление здесь
@@ -804,4 +825,32 @@ async fn install_panel_url(st:&AppState)->Result<String>{
 pub(crate) fn valid_node_address(address:&str)->bool {
     let ip=address.trim_start_matches('[').trim_end_matches(']');
     ip.parse::<std::net::IpAddr>().is_ok() || (!address.is_empty() && address.len()<=253 && address.split('.').all(|part|!part.is_empty() && part.len()<=63 && !part.starts_with('-') && !part.ends_with('-') && part.bytes().all(|b|b.is_ascii_alphanumeric()||b==b'-')))
+}
+
+#[cfg(test)]
+mod profile_assignment_tests {
+    use super::*;
+
+    #[test]
+    fn profile_patch_distinguishes_omitted_null_and_selected() {
+        let omitted: UpdateNode = serde_json::from_value(json!({"notify": false})).unwrap();
+        let detached: UpdateNode = serde_json::from_value(json!({"profile_id": null})).unwrap();
+        let assigned: UpdateNode = serde_json::from_value(json!({"profile_id": 42})).unwrap();
+        assert_eq!(omitted.profile_id, None);
+        assert_eq!(detached.profile_id, Some(None));
+        assert_eq!(assigned.profile_id, Some(Some(42)));
+        for invalid in [json!(""), json!("42"), json!([]), json!(true)] {
+            assert!(serde_json::from_value::<UpdateNode>(json!({"profile_id": invalid})).is_err());
+        }
+    }
+
+    #[test]
+    fn node_can_be_created_before_a_profile_exists() {
+        let node: CreateNode = serde_json::from_value(json!({
+            "name": "test-node", "country_code": "NL", "address": "192.0.2.10",
+            "profile_id": null, "inbound_tags": []
+        })).unwrap();
+        assert_eq!(node.profile_id, None);
+        assert!(node.inbound_tags.unwrap().is_empty());
+    }
 }

@@ -1,5 +1,12 @@
 'use strict';
 Object.assign(DICT, {
+  "Без профиля": "No profile",
+  "Подключить сервер сейчас, выбрать конфигурацию позже. Подходит для тестовой ноды.": "Connect the server now and choose a configuration later. Suitable for a test node.",
+  "Можно подключить ноду без профиля и настроить VPN позже.": "You can connect a node without a profile and configure VPN later.",
+  "После синхронизации VPN-подключения на этой ноде закроются. Агент останется на связи, ноду можно будет использовать для тестов.": "After synchronization, VPN connections on this node will close. The agent will stay online and the node will be available for testing.",
+  "Профиль снят — ожидаем синхронизации ноды": "Profile removed — waiting for the node to synchronize",
+  "Выберите профиль или вариант «Без профиля»": "Select a profile or choose “No profile”",
+
   "Оформление:": "Theme:",
   ". Изменить тему": ". Change theme",
   "тёмное": "dark",

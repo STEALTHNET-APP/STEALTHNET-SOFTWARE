@@ -215,7 +215,7 @@ function createNodeStepper(){
   let step = 1;
   const total = 3;
   const form = { name:'', country_code:'NL', address:'', api_port:2222,
-                 profile_id: DB.profiles[0] ? +DB.profiles[0].id : null,
+                 profile_id: null,
                  inbound_tags: null, traffic_multiplier:1.0,
                  count_traffic:true, notify:true };
 
@@ -246,16 +246,20 @@ function createNodeStepper(){
         <p class="hint">Агент подключится к панели сам. Открывать для него входящий порт на сервере не нужно.</p>
       </div>`,
     2:`
-      <div class="field"><label>Профиль конфигурации <span class="req">*</span></label>
+      <div class="field"><label>Профиль конфигурации</label>
+        <label class="check node-profile-choice">
+          <input type="radio" name="cnProf" value="" ${form.profile_id===null?'checked':''}>
+          <span><b>Без профиля</b><small>Подключить сервер сейчас, выбрать конфигурацию позже. Подходит для тестовой ноды.</small></span>
+        </label>
         ${DB.profiles.length ? `<input class="inp" id="cnProfileSearch" aria-label="Поиск профиля" placeholder="Найти профиль…"><div class="node-setup-profiles">`+DB.profiles.map(p=>`
           <label class="check" data-cn-profile="${esc(p.name.toLowerCase())}" style="padding:11px 13px;border:1px solid ${+p.id===form.profile_id?'color-mix(in srgb, var(--accent) 40%, transparent)':'var(--border)'};border-radius:10px;margin-bottom:8px;background:${+p.id===form.profile_id?'var(--accent-dim)':'transparent'}">
             <input type="radio" name="cnProf" value="${p.id}" ${+p.id===form.profile_id?'checked':''} style="appearance:auto;accent-color:var(--accent)">
             <span style="flex:1"><b class="mono" style="font-size:12.5px;display:block">${esc(p.name)}</b>
             <span style="font-size:11px;color:var(--text-3)">${p.inbounds.join(' · ')||'нет инбаундов'}</span></span>
           </label>`).join('')+'</div>'
-          : `<div class="empty">${I('json',32)}<b>Нет профилей</b><span>Сначала создайте профиль конфигурации — без него ноде нечего раздавать</span></div>`}
+          : `<div class="empty">${I('json',32)}<b>Нет профилей</b><span>Можно подключить ноду без профиля и настроить VPN позже.</span></div>`}
       </div>
-      <div class="field"><label>Инбаунды на этой ноде</label>
+      <div class="field" ${form.profile_id===null?'hidden':''}><label>Инбаунды на этой ноде</label>
         <div class="chips-select" id="fInb">${profileInbounds().map(t=>`
           <button type="button" class="chip-opt ${form.inbound_tags===null||form.inbound_tags.includes(t)?'on':''}" aria-pressed="${form.inbound_tags===null||form.inbound_tags.includes(t)}" data-tag="${esc(t)}">${esc(t)}</button>`).join('')||'<span class="sub-note">выберите профиль</span>'}</div>
         <div class="hint">Можно поднять не все: например, без Hysteria2 на слабом сервере.
@@ -284,7 +288,7 @@ function createNodeStepper(){
     }
     if(step===2){
       const sel = layer.querySelector('input[name=cnProf]:checked');
-      if(sel) form.profile_id = +sel.value;
+      if(sel) form.profile_id = sel.value ? Number(sel.value) : null;
       form.inbound_tags = [...layer.querySelectorAll('#fInb .chip-opt.on')].map(c=>c.dataset.tag);
     }
     if(step===3){
@@ -300,8 +304,7 @@ function createNodeStepper(){
       if(form.country_code.length!==2) return 'Выберите страну из списка';
       if(!form.address) return 'Укажите адрес сервера';
     }
-    if(step===2){
-      if(!form.profile_id) return 'Выберите профиль конфигурации';
+    if(step===2 && form.profile_id!==null){
       if(!form.inbound_tags.length) return 'Выберите хотя бы один инбаунд — иначе ноду никто не увидит';
     }
     return null;
@@ -330,7 +333,7 @@ function createNodeStepper(){
         // Смена профиля меняет набор инбаундов — перерисовываем сразу,
         // иначе можно выбрать инбаунд от другого профиля.
         layer.querySelectorAll('input[name=cnProf]').forEach(el=>el.addEventListener('change', ()=>{
-          form.profile_id = +el.value; form.inbound_tags = null; redraw();
+          form.profile_id = el.value ? Number(el.value) : null; form.inbound_tags = null; redraw();
         }));
       };
 
@@ -597,12 +600,14 @@ function editNodeDrawer(n){
 function nodeProfileDrawer(n, after){
   openDrawer({
     title:'Профиль для '+n.name, sub:'Нода получит новый конфиг и перезапустит Xray', icon:'json',
-    body: DB.profiles.map(p=>`
-      <label class="check" data-pf="${p.id}" style="padding:12px 14px;border:1px solid ${p.name===n.profile?'color-mix(in srgb, var(--accent) 40%, transparent)':'var(--border)'};border-radius:10px;margin-bottom:8px;background:${p.name===n.profile?'var(--accent-dim)':'transparent'}">
-        <input type="radio" name="npf" value="${p.id}" ${p.name===n.profile?'checked':''} style="appearance:auto;accent-color:var(--accent)">
-        <span style="flex:1"><b class="mono" style="font-size:12.5px;display:block">${p.name}</b>
-          <span style="font-size:11px;color:var(--text-3)">${p.inbounds.join(' · ')}</span></span>
-      </label>`).join('') || `<div class="empty">${I('json',30)}<b>Профилей нет</b><span>Сначала создайте профиль конфигурации</span></div>`,
+    body: `<label class="check node-profile-choice">
+        <input type="radio" name="npf" value="" ${!n.profileId?'checked':''}>
+        <span><b>Без профиля</b><small>После синхронизации VPN-подключения на этой ноде закроются. Агент останется на связи, ноду можно будет использовать для тестов.</small></span>
+      </label>` + DB.profiles.map(p=>`
+      <label class="check node-profile-choice" data-pf="${p.id}">
+        <input type="radio" name="npf" value="${p.id}" ${String(p.id)===String(n.profileId)?'checked':''}>
+        <span><b>${esc(p.name)}</b><small>${p.inbounds.map(esc).join(' · ')}</small></span>
+      </label>`).join(''),
     footer:`<div class="spacer"></div><button class="btn" data-close>Отмена</button><button class="btn primary" data-save>Применить</button>`,
     onMount(l, close){
       // Раньше кнопка показывала «Профиль применён», не отправляя запроса:
@@ -612,9 +617,9 @@ function nodeProfileDrawer(n, after){
         if (!picked) { toast('Выберите профиль конфигурации','err'); return; }
         const btn = e.currentTarget; btn.disabled = true;
         try {
-          await API.call('/api/nodes/'+n.id, { method:'PATCH', body:{ profile_id: Number(picked.value) } });
+          await API.call('/api/nodes/'+n.id, { method:'PATCH', body:{ profile_id: picked.value ? Number(picked.value) : null } });
           close();
-          toast('Профиль назначен — нода заберёт конфиг в течение 15 секунд');
+          toast(picked.value ? 'Профиль назначен — нода заберёт конфиг в течение 15 секунд' : 'Профиль снят — ожидаем синхронизации ноды');
           await refreshDB();
           // Данные ноды перечитываем из обновлённого DB: у объекта, с
           // которым открывали карточку, и профиль, и инбаунды прежние.

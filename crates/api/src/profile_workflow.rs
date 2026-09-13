@@ -362,11 +362,16 @@ async fn trial_finish(
     Path(id): Path<i64>,
 ) -> Result<Json<Value>> {
     let mut tx = st.pool.begin().await?;
-    let row=sqlx::query("SELECT id,candidate_id,node_id FROM profile_trials WHERE profile_id=$1 AND state='testing' FOR UPDATE").bind(id).fetch_optional(&mut *tx).await?.ok_or(Error::NotFound)?;
+    let pending = sqlx::query("SELECT id,node_id FROM profile_trials WHERE profile_id=$1 AND state='testing'")
+        .bind(id).fetch_optional(&mut *tx).await?.ok_or(Error::NotFound)?;
+    // Match node_update's lock order and recheck the same trial after waiting.
+    sqlx::query("SELECT id FROM nodes WHERE id=$1 FOR UPDATE")
+        .bind(pending.get::<i64, _>("node_id")).execute(&mut *tx).await?;
+    let row=sqlx::query("SELECT id,candidate_id,node_id FROM profile_trials WHERE id=$1 AND state='testing' FOR UPDATE").bind(pending.get::<i64, _>("id")).fetch_optional(&mut *tx).await?.ok_or(Error::NotFound)?;
     let node: i64 = row.get("node_id");
     let candidate: i64 = row.get("candidate_id");
     sqlx::query("DELETE FROM node_inbounds WHERE node_id=$1 AND EXISTS(SELECT 1 FROM nodes WHERE id=$1 AND profile_id=$2)").bind(node).bind(candidate).execute(&mut *tx).await?;
-    sqlx::query("UPDATE nodes SET profile_id=NULL,reported_config_version=NULL WHERE id=$1 AND profile_id=$2").bind(node).bind(candidate).execute(&mut *tx).await?;
+    sqlx::query("UPDATE nodes SET profile_id=NULL,reported_config_version=NULL,reported_users_version=NULL WHERE id=$1 AND profile_id=$2").bind(node).bind(candidate).execute(&mut *tx).await?;
     sqlx::query("UPDATE profile_trials SET state='finished' WHERE id=$1")
         .bind(row.get::<i64, _>("id"))
         .execute(&mut *tx)
