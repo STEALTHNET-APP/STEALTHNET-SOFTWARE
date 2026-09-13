@@ -12,6 +12,8 @@ use sqlx::Row;
 
 pub fn routes() -> Router<AppState> {
     Router::new()
+        .route("/api/profiles/selfsteal/templates", get(selfsteal_templates))
+        .route("/api/profiles/selfsteal/preview", post(selfsteal_preview))
         .route(
             "/api/profile-templates",
             get(templates).post(template_create),
@@ -30,6 +32,38 @@ pub fn routes() -> Router<AppState> {
             "/api/profiles/{id}/trial",
             get(trial_get).post(trial_create).delete(trial_finish),
         )
+}
+#[derive(Deserialize)]
+struct SiteLanguage { lang: Option<String> }
+async fn selfsteal_templates(_a: CurrentAdmin, axum::extract::Query(q): axum::extract::Query<SiteLanguage>) -> Json<Value> {
+    Json(json!(sn_core::selfsteal_site::catalog(q.lang.as_deref().unwrap_or("ru"))))
+}
+async fn selfsteal_preview(_a: CurrentAdmin, Json(site): Json<sn_core::selfsteal::Site>) -> Result<Json<Value>> {
+    site.validate().map_err(Error::bad)?;
+    Ok(Json(json!({"html":sn_core::selfsteal_site::render(&site)})))
+}
+
+// Serialize profile/domain assignment before taking profile or node row locks.
+// A single-domain HTTP-01 setup cannot safely request a certificate on several nodes.
+pub(crate) async fn placement_lock(tx: &mut sqlx::Transaction<'_, sqlx::Postgres>) -> Result<()> {
+    sqlx::query("SELECT pg_advisory_xact_lock(1397966156)").execute(&mut **tx).await?;
+    Ok(())
+}
+pub(crate) async fn check_site_placement(tx: &mut sqlx::Transaction<'_, sqlx::Postgres>, profile_id: i64, config: &Value) -> Result<()> {
+    let Some(site) = sn_core::selfsteal::validate(config).map_err(Error::bad)? else { return Ok(()); };
+    let count: i64 = sqlx::query_scalar("SELECT count(*) FROM nodes n JOIN config_profiles p ON p.id=n.profile_id WHERE n.deleted_at IS NULL AND (p.id=$1 OR p.config#>>'{_selfsteal,domain}'=$2)")
+        .bind(profile_id).bind(site.domain).fetch_one(&mut **tx).await?;
+    if count > 1 {
+        return Err(Error::bad("A Selfsteal domain can serve one node. Create a separate profile with another domain / Домен Selfsteal можно назначить одной ноде. Создайте отдельный профиль с другим доменом"));
+    }
+    Ok(())
+}
+pub(crate) async fn check_assigned_site(tx: &mut sqlx::Transaction<'_, sqlx::Postgres>, profile_id: Option<i64>) -> Result<()> {
+    if let Some(id) = profile_id {
+        let config: Value = sqlx::query_scalar("SELECT config FROM config_profiles WHERE id=$1").bind(id).fetch_optional(&mut **tx).await?.ok_or(Error::NotFound)?;
+        check_site_placement(tx, id, &config).await?;
+    }
+    Ok(())
 }
 #[derive(Deserialize)]
 pub struct Config {
@@ -238,7 +272,7 @@ async fn impact(
     ))
 }
 async fn node_status(st: &AppState, id: i64) -> Result<Vec<Value>> {
-    Ok(sqlx::query_scalar("SELECT jsonb_build_object('id',n.id,'name',n.name,'engine_version',n.engine_version,'reported_version',n.reported_config_version,'applied',n.reported_config_version=p.version AND n.reported_users_version LIKE p.id::text||':%' AND n.engine_ok AND n.last_seen_at>now()-interval '90 seconds','target_version',p.version,'online',n.last_seen_at>now()-interval '90 seconds','engine_ok',n.engine_ok,'error',n.engine_error,'last_seen_at',n.last_seen_at) FROM nodes n JOIN config_profiles p ON p.id=n.profile_id WHERE n.profile_id=$1 AND n.deleted_at IS NULL ORDER BY n.name").bind(id).fetch_all(&st.pool).await?)
+    Ok(sqlx::query_scalar("SELECT jsonb_build_object('id',n.id,'name',n.name,'engine_version',n.engine_version,'reported_version',n.reported_config_version,'applied',n.reported_config_version=p.version AND n.reported_users_version LIKE p.id::text||':%' AND n.engine_ok AND n.last_seen_at>now()-interval '90 seconds','target_version',p.version,'online',n.last_seen_at>now()-interval '90 seconds','engine_ok',n.engine_ok,'error',n.engine_error,'selfsteal',n.plugins_status->'selfsteal','last_seen_at',n.last_seen_at) FROM nodes n JOIN config_profiles p ON p.id=n.profile_id WHERE n.profile_id=$1 AND n.deleted_at IS NULL ORDER BY n.name").bind(id).fetch_all(&st.pool).await?)
 }
 async fn status(
     _a: CurrentAdmin,
@@ -261,6 +295,7 @@ struct Trial {
     node_id: i64,
     config: Value,
     expected_version: i32,
+    selfsteal_domain: Option<String>,
 }
 async fn trial_create(
     CurrentAdmin(a): CurrentAdmin,
@@ -271,6 +306,7 @@ async fn trial_create(
     bounded(&b.config)?;
     // Only a free node is eligible. Rehearsals cannot change a production node.
     let mut tx = st.pool.begin().await?;
+    placement_lock(&mut tx).await?;
     let row = sqlx::query("SELECT name,version FROM config_profiles WHERE id=$1 FOR UPDATE")
         .bind(id)
         .fetch_optional(&mut *tx)
@@ -294,7 +330,10 @@ async fn trial_create(
             "Finish the active trial first / Сначала завершите текущую проверку",
         ));
     }
-    let config = sn_core::service_parts::ensure_service_parts(&b.config).0;
+    let mut config = sn_core::service_parts::ensure_service_parts(&b.config).0;
+    if let Some(domain) = b.selfsteal_domain.as_deref() {
+        sn_core::selfsteal::set_domain(&mut config, domain).map_err(Error::bad)?;
+    }
     let check = sn_core::xray_check::check_structure(&config);
     if !check.valid {
         return Err(Error::bad(check.errors.join("; ")));
@@ -322,6 +361,7 @@ async fn trial_create(
         .ok_or_else(|| Error::bad("Candidate creation failed"))?;
     let result:Result<i64>=async {
         sqlx::query("UPDATE nodes SET profile_id=$2,reported_config_version=NULL WHERE id=$1").bind(b.node_id).bind(candidate).execute(&mut *tx).await?;
+        check_assigned_site(&mut tx, Some(candidate)).await?;
         sqlx::query("DELETE FROM node_inbounds WHERE node_id=$1").bind(b.node_id).execute(&mut *tx).await?;
         sqlx::query("INSERT INTO node_inbounds(node_id,inbound_id) SELECT $1,id FROM inbounds WHERE profile_id=$2").bind(b.node_id).bind(candidate).execute(&mut *tx).await?;
         let trial:i64=sqlx::query_scalar("INSERT INTO profile_trials(profile_id,candidate_id,node_id,base_version,candidate_version) VALUES($1,$2,$3,$4,1) RETURNING id").bind(id).bind(candidate).bind(b.node_id).bind(b.expected_version).fetch_one(&mut *tx).await?;tx.commit().await?;Ok(trial)

@@ -8,6 +8,7 @@
 
 mod engine_update;
 mod plugins;
+mod selfsteal;
 
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -64,6 +65,7 @@ fn env_num(key: &str, default: u64) -> u64 {
 struct SyncRequest {
     agent_version: String,
     safe_engine_update: bool,
+    managed_selfsteal: bool,
     engine_version: Option<String>,
     config_version: Option<i32>,
     users_version: Option<String>,
@@ -91,11 +93,13 @@ struct SyncRequest {
     tx_total_bytes: Option<i64>,
     /// Готовность сервера к плагинам: без nftables и прав NET_ADMIN
     /// они не работают, и панель не должна показывать их включёнными.
-    plugins_status: Option<plugins::PluginStatus>,
+    plugins_status: Option<Value>,
 }
 
 #[derive(Deserialize)]
 struct SyncResponse {
+    #[serde(default)]
+    selfsteal: Option<sn_core::selfsteal::Site>,
     #[serde(default)]
     config_changed: bool,
     #[serde(default)]
@@ -198,6 +202,7 @@ async fn main() {
         engine_update_failed: None,
         agent_token: None,
         torrent_block: None,
+        selfsteal: selfsteal::Controller::default(),
     };
 
     let mut sync_tick = tokio::time::interval(std::time::Duration::from_secs(settings.sync_interval));
@@ -228,6 +233,7 @@ async fn main() {
 }
 
 struct NodeState {
+    selfsteal: selfsteal::Controller,
     config_version: Option<i32>,
     /// Отпечаток применённого состава клиентов. Отдельно от версии
     /// конфига: состав меняется на каждой покупке и отзыве.
@@ -318,6 +324,7 @@ async fn sync(
     let body = SyncRequest {
         agent_version: AGENT_VERSION.to_string(),
         safe_engine_update: true,
+        managed_selfsteal: true,
         engine_version: state.engine_version.clone(),
         config_version: state.config_version,
         users_version: state.users_version.clone(),
@@ -348,7 +355,9 @@ async fn sync(
         plugins_status: Some({
             let mut st = plugins::probe();
             st.applied = state.plugins_applied.is_some();
-            st
+            let mut value = json!(st);
+            value["selfsteal"] = json!(state.selfsteal.status);
+            value
         }),
     };
 
@@ -522,13 +531,32 @@ async fn sync(
         }
     }
 
+    let site_ready = state.selfsteal.poll(sync.selfsteal.as_ref()).await;
     if !sync.config_changed {
+        // Reconcile a cleanup interrupted after a successful engine switch.
+        if site_ready {
+            if let Err(e) = state.selfsteal.commit(sync.selfsteal.as_ref()).await {
+                tracing::warn!(error = %e, "Selfsteal cleanup pending");
+            }
+        }
+        return Ok(());
+    }
+
+    // Removing Selfsteal must never wait for an outstanding certificate job.
+    // Its managed website is cleaned up once preparation has finished.
+    if sync.selfsteal.is_some() && !site_ready {
+        state.engine_error = Some(state.selfsteal.pending_message());
         return Ok(());
     }
 
     let Some(config) = sync.config else {
         return Ok(());
     };
+    // Both ends validate the same declarative contract, even with a custom panel.
+    let embedded_site = sn_core::selfsteal::validate(&config)?;
+    if embedded_site != sync.selfsteal {
+        return Err("Selfsteal configuration mismatch / Настройки сайта и профиля не совпадают".into());
+    }
 
     // Разделяем два случая: поменялся конфиг или только состав клиентов.
     // Второе случается на каждой покупке, и в журнале это должно
@@ -542,7 +570,7 @@ async fn sync(
     );
 
 
-    let merged = merge_users(config, &sync.users);
+    let merged = merge_users(sn_core::selfsteal::engine_config(&config), &sync.users);
 
     // Проверяем конфиг движком до подмены рабочего.
     //
@@ -594,6 +622,11 @@ async fn sync(
     state.config_version = sync.config_version;
     state.users_version = sync.users_version;
     state.engine_error = None;
+    if site_ready {
+        if let Err(e) = state.selfsteal.commit(sync.selfsteal.as_ref()).await {
+            tracing::warn!(error = %e, "Selfsteal cleanup pending");
+        }
+    }
     Ok(())
 }
 

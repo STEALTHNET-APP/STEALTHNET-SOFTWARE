@@ -1,6 +1,8 @@
 [Проект](../../README.ru.md) · [Русский](../ru/README.md) / [English](../en/README.md)
 
 # Руководство STEALTHNET
+[![Сайт и инструкции](../media/navigation/button-site-ru.svg)](https://stealthnet.software/ru/docs/)
+
 
 Начните с установки и мастера запуска. Далее каждый раздел описывает назначение, порядок работы, проверку результата и связанные настройки. Все 34 раздела панели имеют парные RU/EN страницы.
 
@@ -86,3 +88,5 @@
 
 - [Профиль администратора](sections/admin-profile.md)
 - [Первый администратор и команда](sections/team.md)
+
+[Selfsteal: свой сайт на ноде](selfsteal.md)

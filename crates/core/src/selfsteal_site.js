@@ -1,0 +1,9 @@
+'use strict';
+const servings=document.getElementById('servings');
+if(servings)servings.addEventListener('input',()=>{const n=Number(servings.value);if(Number.isFinite(n)&&n>=1&&n<=20)document.querySelectorAll('[data-amount]').forEach(el=>el.textContent=String(Math.round(Number(el.dataset.amount)*n*10)/10));});
+const input=document.getElementById('text-input');
+if(input){const count=()=>{document.getElementById('words').textContent=String(input.value.trim()?input.value.trim().split(/\s+/u).length:0);document.getElementById('characters').textContent=String([...input.value].length);};input.addEventListener('input',count);document.querySelectorAll('[data-text-action]').forEach(b=>b.addEventListener('click',()=>{const v=input.value;input.value=({upper:()=>v.toLocaleUpperCase(),lower:()=>v.toLocaleLowerCase(),spaces:()=>v.replace(/[^\S\n]+/gu,' ').trim(),clear:()=>''})[b.dataset.textAction]();count();input.focus();}));}
+const search=document.getElementById('book-search');
+if(search)search.addEventListener('input',()=>{let found=0;document.querySelectorAll('.book').forEach(b=>{b.hidden=!b.textContent.toLocaleLowerCase().includes(search.value.trim().toLocaleLowerCase());if(!b.hidden)found++;});document.getElementById('no-books').hidden=found>0;});
+const clock=document.getElementById('clock'),zone=document.getElementById('zone');
+if(clock){const update=()=>{const locale=document.documentElement.lang==='ru'?'ru-RU':'en-GB',opts=zone.value==='local'?{}:{timeZone:zone.value},now=new Date();clock.dateTime=now.toISOString();clock.textContent=new Intl.DateTimeFormat(locale,{...opts,hour:'2-digit',minute:'2-digit',second:'2-digit',hourCycle:'h23'}).format(now);document.getElementById('clock-date').textContent=new Intl.DateTimeFormat(locale,{...opts,weekday:'long',day:'numeric',month:'long',year:'numeric'}).format(now);};zone.addEventListener('change',update);update();setInterval(update,1000);}

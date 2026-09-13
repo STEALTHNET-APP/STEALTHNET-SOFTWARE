@@ -107,6 +107,7 @@ pub fn missing_parameters(config: &Value) -> Vec<String> {
     }
     let mut out = vec![];
     walk(config, String::new(), &mut out);
+    out.retain(|p| !matches!(p.as_str(), "/_selfsteal/title" | "/_selfsteal/description"));
     out
 }
 /// Template export deliberately parameterizes operator values, including unknown
@@ -185,7 +186,23 @@ pub fn sanitize_template(config: &Value) -> Value {
             _ => v.clone(),
         }
     }
-    clean(config, "", false)
+    let mut out = clean(config, "", false);
+    if let Some(site) = config.get(crate::selfsteal::KEY).and_then(Value::as_object) {
+        let mut meta = site.clone();
+        meta.insert("domain".into(), json!("{{selfstealDomain}}"));
+        meta.insert("title".into(), json!(""));
+        meta.insert("description".into(), json!(""));
+        out[crate::selfsteal::KEY] = json!(meta);
+        // Internal loopback is a fixed part of this scenario, not an operator address.
+        if let Some(inbounds) = out["inbounds"].as_array_mut() {
+            for ib in inbounds {
+                if ib["tag"] == site.get("inbound_tag").cloned().unwrap_or(Value::Null) {
+                    ib["streamSettings"]["realitySettings"]["target"] = json!(crate::selfsteal::TARGET);
+                }
+            }
+        }
+    }
+    out
 }
 /// Generate only missing secrets, per inbound. Existing values are never rotated.
 pub fn generate_missing(config: &Value) -> Value {

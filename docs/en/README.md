@@ -1,6 +1,8 @@
 [Project](../../README.md) · [Русский](../ru/README.md) / [English](../en/README.md)
 
 # STEALTHNET documentation
+[![Website & guides](../media/navigation/button-site-en.svg)](https://stealthnet.software/docs/)
+
 
 Start with installation and first setup. Each section explains its purpose, workflow, verification and related settings. All 34 panel sections have matching RU/EN pages.
 
@@ -86,3 +88,5 @@ Start with installation and first setup. Each section explains its purpose, work
 
 - [Admin profile](sections/admin-profile.md)
 - [First owner and team](sections/team.md)
+
+[Selfsteal: your own website on a node](selfsteal.md)

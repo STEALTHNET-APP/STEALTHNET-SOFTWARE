@@ -139,3 +139,5 @@ flowchart LR
 [Установка нод](node-installation.md) · [Хосты](sections/hosts.md) · [Внутренние сквады](sections/squads-int.md) · [Страница подписки](subscription-installation.md)
 
 В новых версиях Xray исходящий Freedom по умолчанию ограничивает обращения клиентов к частным и зарезервированным IP. Для намеренного доступа к внутреннему сервису задайте узкое правило по IP, сети и порту, сверившись с [официальной документацией Freedom](https://xtls.github.io/en/config/outbounds/freedom.html#finalruleobject).
+
+[Selfsteal: свой сайт на ноде](selfsteal.md)

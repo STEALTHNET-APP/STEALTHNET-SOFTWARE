@@ -133,6 +133,7 @@ function mapNode(n) {
     xray: n.engine_version || '—',
     agent: n.agent_version || '—',
     safeEngineUpdate: n.safe_engine_update === true,
+    selfsteal: n.selfsteal || null,
     lastSeen: n.last_seen_at,
     online: n.online_count || 0,
     todayBytes: n.today_bytes || 0,

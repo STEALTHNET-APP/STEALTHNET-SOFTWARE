@@ -1174,7 +1174,7 @@ async fn nodes_list(_a: CurrentAdmin, State(st): State<AppState>) -> Result<Json
     // numeric приводим к float8: иначе тянуть BigDecimal ради множителя.
     let rows = sqlx::query(
         "SELECT n.id, n.name, n.country_code, n.address, n.api_port, n.status::text AS status,
-                n.engine_version, n.agent_version, n.safe_engine_update, n.last_seen_at,
+                n.engine_version, n.agent_version, n.safe_engine_update, n.last_seen_at, n.plugins_status,
                 n.engine_ok, n.engine_error,
                 n.traffic_multiplier::float8 AS traffic_multiplier,
                 n.count_traffic, n.notify, n.profile_id, p.name AS profile_name,
@@ -1244,6 +1244,7 @@ async fn nodes_list(_a: CurrentAdmin, State(st): State<AppState>) -> Result<Json
             "engine_version": r.get::<Option<String>, _>("engine_version"),
             "agent_version": r.get::<Option<String>, _>("agent_version"),
             "safe_engine_update": r.get::<bool, _>("safe_engine_update"),
+            "selfsteal": r.try_get::<Option<Value>, _>("plugins_status").ok().flatten().and_then(|v|v.get("selfsteal").cloned()),
             "traffic_multiplier": r.get::<f64, _>("traffic_multiplier"),
             "count_traffic": r.get::<bool, _>("count_traffic"),
             "notify": r.get::<bool, _>("notify"),
@@ -1625,6 +1626,7 @@ async fn profile_save(
     Json(b): Json<ConfigBody>,
 ) -> Result<Json<Value>> {
     let mut tx = st.pool.begin().await?;
+    crate::profile_workflow::placement_lock(&mut tx).await?;
     let previous=sqlx::query("SELECT version,config FROM config_profiles WHERE id=$1 FOR UPDATE")
         .bind(id).fetch_optional(&mut *tx).await?.ok_or(Error::NotFound)?;
     if b.expected_version.is_some_and(|v|v!=previous.get::<i32,_>("version")) {
@@ -1659,6 +1661,7 @@ async fn profile_save(
     // работает, но не считает трафик, и заметно это не сразу.
     let (config, дописано) = sn_core::service_parts::ensure_service_parts(исходный);
     let config = &config;
+    crate::profile_workflow::check_site_placement(&mut tx, id, config).await?;
 
     let engine = std::env::var("ENGINE_BIN").unwrap_or_else(|_| "xray".into());
     let check = sn_core::xray_check::check_full(config, &engine);

@@ -175,6 +175,7 @@ function nodeRow(n){
    набора для одного объекта заставляют помнить, где что лежит. */
 function nodeMenu(anchor, n){
   menu(anchor, [
+    {label:'Команда установки', icon:'terminal', onClick:()=>nodeInstallationCommand(n)},
     {label:'Настройки ноды', icon:'settings', onClick:()=>editNodeDrawer(n)},
     {label:'Статистика трафика', icon:'chart', onClick:()=>nodeStatsModal(n)},
     {label:'Проверить сеть · bgp.tools', icon:'globe', onClick:()=>openNodeOverview(n,'network')},
@@ -203,11 +204,28 @@ function rotateNodeSecret(n){
     onOk:async ()=>{
       try {
         const r = await API.call('/api/nodes/'+n.id+'/rotate-secret', { method:'POST' });
-        nodeInstallModal(r.install);
+        nodeInstallModal({...r.install,reissued:true,rotated:true,secret:r.secret});
         await refreshDB();
       } catch(e){ toast('Не получилось: '+e.message, 'err'); }
     }
   });
+}
+
+async function nodeInstallationCommand(n){
+  const t=(ru,en)=>LANG==='en'?en:ru;
+  try{
+    const info=await API.call('/api/nodes/'+n.id+'/install');
+    openModal({title:t('Команда установки агента','Agent installation command'),sub:esc(n.name),icon:'terminal',size:'md',
+      body:`<div class="node-install-recovery" data-no-i18n><h3>${info.previously_connected?t('Агент уже подключался','The agent has connected before'):t('Установите агент на сервер','Install the agent on your server')}</h3><p>${info.previously_connected?t('Ключ работающей ноды хранится на её сервере. Получение информации в этом окне его не меняет. Для переноса или переустановки можно отдельно заменить ключ.','The working node’s key is stored on its server. Opening this window does not change it. You can replace the key explicitly when moving or reinstalling the node.'):t('Если вы закрыли первую команду, создайте новую. Появится готовая команда для чистого Debian или Ubuntu с кнопкой копирования.','If you closed the first command, create a new one. You will get a ready-to-run command for a clean Debian or Ubuntu server and a copy button.')}</p>${!info.previously_connected?`<p class="hint">${t('Предыдущая установочная команда перестанет действовать. Нода, её профиль и настройки сохранятся.','The previous installation command will stop working. The node, profile and settings are kept.')}</p>`:''}<p class="pw-result err" id="nodeInstallError" role="alert"></p></div>`,
+      footer:`<button class="btn" data-close>${t('Закрыть','Close')}</button><div class="spacer"></div><button class="btn ${info.previously_connected?'':'primary'}" id="nodeGetInstall">${I(info.previously_connected?'key':'terminal',16)} ${info.previously_connected?t('Заменить ключ…','Replace key…'):t('Получить новую команду','Get a new command')}</button>`,
+      onMount(l,close){l.querySelector('#nodeGetInstall').onclick=async e=>{
+        if(info.previously_connected){close();rotateNodeSecret(n);return;}
+        const button=e.currentTarget;button.disabled=true;
+        try{const result=await API.call('/api/nodes/'+n.id+'/installation-command',{method:'POST'});close();nodeInstallModal(result.install);await refreshDB();}
+        catch(error){l.querySelector('#nodeInstallError').textContent=ProfileWorkshop.errorText(error.message);button.disabled=false;}
+      };}
+    });
+  }catch(e){toast(ProfileWorkshop.errorText(e.message),'err');}
 }
 
 /* создание ноды: степпер */
@@ -372,11 +390,12 @@ function nodeInstallModal(inst){
   // чем явное «подставьте свой».
   const ssh_host = (inst.address || '').trim() || 'АДРЕС_СЕРВЕРА';
   openModal({
-    title:'Нода создана', sub:esc(inst.name)+' · осталось запустить агент', icon:'server', size:'lg',
+    title:inst.reissued?'Команда установки агента':'Нода создана', sub:esc(inst.name)+' · осталось запустить агент', icon:'server', size:'lg',
     body:`
+      ${inst.rotated?`<div class="notice" data-no-i18n><b>${LANG==='en'?'Agent already installed?':'Агент уже установлен?'}</b><p>${LANG==='en'?'Replace only NODE_SECRET in /etc/sn-node/node.env with the value below, then run systemctl restart sn-node. If the old installation stores the key in the systemd unit, change it there and run systemctl daemon-reload before restarting. The installer below is for a clean server.':'Замените только NODE_SECRET в /etc/sn-node/node.env на значение ниже, затем выполните systemctl restart sn-node. Если в старой установке ключ записан в юните systemd, измените его там и перед перезапуском выполните systemctl daemon-reload. Установщик ниже предназначен для чистого сервера.'}</p><div class="code wrap"><pre>${esc(inst.secret)}</pre></div><button class="btn" data-copy="${esc(inst.secret)}">${I('copy',14)} ${LANG==='en'?'Copy new key':'Скопировать новый ключ'}</button></div>`:''}
       <div class="notice" style="background:color-mix(in srgb, var(--warn) 10%, transparent);border:1px solid color-mix(in srgb, var(--warn) 30%, transparent);color:var(--warn-ink);border-radius:10px;padding:11px 14px;font-size:12.5px;margin-bottom:16px">
         ${I('alert',13)} Секрет показывается один раз — в базе хранится только его хэш.
-        Скопируйте сейчас; потерялся — перевыпустите.
+        Скопируйте сейчас. Если закроете окно, нажмите «Команда установки» в карточке ноды.
       </div>
 
       <div class="tabs" id="instTabs">

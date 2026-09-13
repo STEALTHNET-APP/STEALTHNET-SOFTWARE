@@ -1,4 +1,5 @@
 <p align="center">
+  <a href="https://stealthnet.software/ru/"><img src="docs/media/navigation/button-site-ru.svg" alt="Сайт и инструкции" height="48"></a>
   <a href="README.ru.md"><img src="docs/media/navigation/language-ru.svg" width="162" height="58" alt="Русский" /></a>
   <a href="README.md"><img src="docs/media/navigation/language-en.svg" width="162" height="58" alt="English" /></a>
 </p>
@@ -14,10 +15,10 @@
 
 **STEALTHNET** — платформа для своего VPN-сервиса: инфраструктура, подписки, продажи и клиентские аккаунты в одной системе. Rust и PostgreSQL, независимые службы, интерфейсы на русском и английском.
 
-**v0.1.9 · понятная установка, короткие ссылки подписки и страница подключения на двух языках.**
+**v0.2.0 · понятная установка, короткие ссылки подписки и страница подключения на двух языках.**
 
 <p>
-  <a href="https://github.com/STEALTHNET-APP/STEALTHNET-SOFTWARE/releases/tag/v0.1.9"><img src="docs/media/navigation/link-ru-02.svg" width="206" height="58" alt="Скачать v0.1.9" /></a>
+  <a href="https://github.com/STEALTHNET-APP/STEALTHNET-SOFTWARE/releases/tag/v0.2.0"><img src="docs/media/navigation/link-ru-02.svg" width="206" height="58" alt="Скачать v0.2.0" /></a>
   <a href="docs/compatibility.md"><img src="docs/media/navigation/link-ru-03.svg" width="247" height="58" alt="Проверенные системы" /></a>
 </p>
 
@@ -77,9 +78,9 @@
 ```bash
 apt-get update
 apt-get install -y git curl ca-certificates
-git clone --branch v0.1.9 --depth 1 https://github.com/STEALTHNET-APP/STEALTHNET-SOFTWARE.git /root/stealthnet-installer
+git clone --branch v0.2.0 --depth 1 https://github.com/STEALTHNET-APP/STEALTHNET-SOFTWARE.git /root/stealthnet-installer
 cd /root/stealthnet-installer
-bash install.sh --version v0.1.9
+bash install.sh --version v0.2.0
 ```
 
 Мастер объясняет каждое поле и сначала предлагает разместить подписку вместе с панелью или на отдельном сервере. Во втором варианте установка подписки продолжается из панели на другой машине. Установщик сам скачает готовый релиз для архитектуры сервера, проверит SHA256 и установит PostgreSQL, системные службы и HTTPS. Компилировать Rust не требуется.

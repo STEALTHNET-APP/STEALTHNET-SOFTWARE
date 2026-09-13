@@ -59,6 +59,8 @@ async fn bootstrap(State(st):State<AppState>,headers:HeaderMap)->Result<Json<Val
 
 #[derive(Deserialize)]
 struct SyncRequest {
+    #[serde(default)]
+    managed_selfsteal: bool,
     agent_version: Option<String>,
     #[serde(default)]
     safe_engine_update: bool,
@@ -206,7 +208,7 @@ async fn sync(
 ) -> Result<Json<Value>> {
     let (node_id, node_name) = authenticate(&st, &headers).await?;
 
-    sqlx::query(
+    let heartbeat = sqlx::query(
         // Сведения о сервере пишем в саму ноду, а не в метрики: они почти
         // не меняются, и хранить их каждые 15 секунд значит забить таблицу
         // миллионами одинаковых строк.
@@ -232,7 +234,7 @@ async fn sync(
                 reported_config_version = $16,
                 reported_users_version = $17,
                 safe_engine_update = $18
-          WHERE id = $1",
+          WHERE id = $1 AND agent_secret_hash=$19 AND deleted_at IS NULL",
     )
     .bind(node_id)
     .bind(&req.agent_version)
@@ -252,8 +254,10 @@ async fn sync(
     .bind(req.config_version)
     .bind(&req.users_version)
     .bind(req.safe_engine_update)
+    .bind(sn_core::auth::token_hash(headers.get("x-node-secret").and_then(|h| h.to_str().ok()).ok_or(Error::Unauthorized)?))
     .execute(&st.pool)
     .await?;
+    if heartbeat.rows_affected()!=1 { return Err(Error::Unauthorized); }
 
     if req.cpu_percent.is_some() || req.online_count.is_some() {
         sqlx::query(
@@ -369,6 +373,16 @@ async fn sync(
     };
 
     let version: i32 = profile.get("version");
+    let profile_config: Value = profile.get("config");
+    let selfsteal = sn_core::selfsteal::validate(&profile_config).map_err(Error::bad)?;
+    if selfsteal.is_some() && !req.managed_selfsteal {
+        // An old agent must never switch to a loopback target without a website.
+        let message = "Update the node agent to use Selfsteal / Обновите агент ноды для использования Selfsteal";
+        sqlx::query("UPDATE nodes SET engine_ok=false,engine_error=$2 WHERE id=$1")
+            .bind(node_id).bind(message).execute(&st.pool).await?;
+        return Ok(Json(json!({"ok":true,"config_changed":false,"agent_token":agent_token,
+            "engine_target":engine_target,"plugins":plugins_cfg,"unblock_ips":unblock_ips,"note":message})));
+    }
 
     // Отпечаток состава клиентов.
     //
@@ -400,6 +414,7 @@ async fn sync(
         return Ok(Json(json!({
             "ok": true,
             "config_changed": false,
+            "selfsteal": selfsteal,
             "config_version": version,
             "users_version": users_version,
             "collect_domains": collect_domains,
@@ -437,6 +452,7 @@ async fn sync(
     Ok(Json(json!({
         "ok": true,
         "config_changed": true,
+        "selfsteal": selfsteal,
         "config_version": version,
         "users_version": users_version,
         "collect_domains": collect_domains,
@@ -446,7 +462,7 @@ async fn sync(
         "plugins": plugins_cfg,
         "unblock_ips": unblock_ips,
         "profile": profile.get::<String, _>("name"),
-        "config": profile.get::<Value, _>("config"),
+        "config": profile_config,
         "users": users.iter().map(|u| json!({
             "uuid": u.get::<uuid::Uuid, _>("vpn_uuid").to_string(),
             "email": u.get::<String, _>("username"),

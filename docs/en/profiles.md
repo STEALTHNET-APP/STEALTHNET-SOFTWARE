@@ -139,3 +139,5 @@ Restoring JSON does not automatically restore deleted host, squad or node bindin
 [Node installation](node-installation.md) · [Hosts](sections/hosts.md) · [Internal squads](sections/squads-int.md) · [Subscription page](subscription-installation.md)
 
 Recent Xray versions restrict client traffic to private and reserved IPs through Freedom by default. For intentional access to an internal service, define a narrow rule matching its IP, network and port; consult the [official Freedom documentation](https://xtls.github.io/en/config/outbounds/freedom.html#finalruleobject).
+
+[Selfsteal: your own website on a node](selfsteal.md)

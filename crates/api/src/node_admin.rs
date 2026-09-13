@@ -20,6 +20,7 @@ pub fn node_admin_routes() -> Router<AppState> {
         )
         .route("/api/nodes/{id}/rotate-secret", post(node_rotate_secret))
         .route("/api/nodes/{id}/install", get(node_install))
+        .route("/api/nodes/{id}/installation-command", post(node_installation_command))
         .route("/api/nodes/{id}/reset-traffic", post(node_reset_traffic))
         .route("/api/nodes/{id}/restart-engine", post(node_restart_engine))
         .route("/api/nodes/update-agents", post(nodes_update_agents))
@@ -71,6 +72,7 @@ async fn node_create(
     let hash = sn_core::auth::token_hash(&secret);
 
     let mut tx = st.pool.begin().await?;
+    crate::profile_workflow::placement_lock(&mut tx).await?;
 
     let node_id: i64 = sqlx::query_scalar(
         "INSERT INTO nodes (name, country_code, address, api_port, profile_id,
@@ -91,6 +93,7 @@ async fn node_create(
     .bind(b.notify)
     .fetch_one(&mut *tx)
     .await?;
+    crate::profile_workflow::check_assigned_site(&mut tx, b.profile_id).await?;
 
     // Привязка инбаундов: без неё нода получит конфиг, но ни один клиент
     // в него не попадёт — и это выглядит как «всё работает, но не работает».
@@ -173,6 +176,7 @@ async fn node_update(
     Json(b): Json<UpdateNode>,
 ) -> Result<Json<Value>> {
     let mut tx = st.pool.begin().await?;
+    crate::profile_workflow::placement_lock(&mut tx).await?;
 
     let old_profile: Option<i64> = sqlx::query_scalar(
         "SELECT profile_id FROM nodes WHERE id=$1 AND deleted_at IS NULL FOR UPDATE",
@@ -223,6 +227,7 @@ async fn node_update(
     if res.rows_affected() == 0 {
         return Err(Error::NotFound);
     }
+    crate::profile_workflow::check_assigned_site(&mut tx, b.profile_id.unwrap_or(old_profile)).await?;
 
     // Releasing/reassigning a test node also ends its rehearsal. Keep the
     // candidate profile so the administrator can inspect or reuse it.
@@ -386,7 +391,30 @@ async fn node_install(
     State(st): State<AppState>,
     Path(id): Path<i64>,
 ) -> Result<Json<Value>> {
-    Ok(Json(build_install(&st, id, "ВАШ_СЕКРЕТ_ИЗ_ПАНЕЛИ").await?))
+    let mut info=build_install(&st, id, "ВАШ_СЕКРЕТ_ИЗ_ПАНЕЛИ").await?;
+    let seen: bool = sqlx::query_scalar("SELECT last_seen_at IS NOT NULL FROM nodes WHERE id=$1 AND deleted_at IS NULL").bind(id).fetch_optional(&st.pool).await?.ok_or(Error::NotFound)?;
+    info["previously_connected"] = json!(seen);
+    Ok(Json(info))
+}
+
+/// Recover a lost first-install command without silently revoking a live agent.
+async fn node_installation_command(
+    CurrentAdmin(admin): CurrentAdmin, State(st): State<AppState>, Path(id): Path<i64>,
+) -> Result<Json<Value>> {
+    install_panel_url(&st).await?;
+    let mut tx=st.pool.begin().await?;
+    let seen:bool=sqlx::query_scalar("SELECT last_seen_at IS NOT NULL FROM nodes WHERE id=$1 AND deleted_at IS NULL FOR UPDATE")
+        .bind(id).fetch_optional(&mut *tx).await?.ok_or(Error::NotFound)?;
+    if seen { return Err(Error::bad("This node has already connected. Use the explicit key replacement action / Эта нода уже подключалась. Используйте отдельное действие замены ключа")); }
+    let secret=sn_core::auth::generate_token();
+    sqlx::query("UPDATE nodes SET agent_secret_hash=$2,status='provisioning' WHERE id=$1")
+        .bind(id).bind(sn_core::auth::token_hash(&secret)).execute(&mut *tx).await?;
+    sqlx::query("INSERT INTO audit_log(actor_kind,actor_id,action,entity_type,entity_id) VALUES('admin',$1,'node.installation_command','node',$2)")
+        .bind(admin.id).bind(id).execute(&mut *tx).await?;
+    let mut install=build_install(&st,id,&secret).await?;
+    install["reissued"]=json!(true);
+    tx.commit().await?;
+    Ok(Json(json!({"install":install})))
 }
 
 /// Собирает готовые к вставке материалы: compose, systemd и одну команду.

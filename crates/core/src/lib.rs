@@ -27,5 +27,7 @@ pub mod telegram_client;
 pub mod alerts;
 
 pub mod profile_workflow;
+pub mod selfsteal;
+pub mod selfsteal_site;
 
 pub mod telegram_send;

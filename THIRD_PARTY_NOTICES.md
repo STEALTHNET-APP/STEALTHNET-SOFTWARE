@@ -343,3 +343,7 @@ Declared licenses from `cargo metadata --locked` for the current Cargo.lock, inc
 | [zerovec](https://crates.io/crates/zerovec/0.11.6) | 0.11.6 | Unicode-3.0 |
 | [zerovec-derive](https://crates.io/crates/zerovec-derive/0.11.3) | 0.11.3 | Unicode-3.0 |
 | [zmij](https://crates.io/crates/zmij/1.0.23) | 1.0.23 | MIT |
+
+## PT Serif — Selfsteal mini-sites
+
+Selfsteal pages embed a Latin/Cyrillic subset of PT Serif Regular, Copyright © 2010 ParaType Ltd., under the SIL Open Font License 1.1. [License](crates/core/src/selfsteal_font_OFL.txt). Source: https://github.com/google/fonts/tree/main/ofl/ptserif. The font is embedded as WOFF2; no external font request is made.

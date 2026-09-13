@@ -43,3 +43,11 @@ When connecting a server, leave **“No profile”** selected in the Configurati
 For an existing node, open its profile selector, choose **“No profile” → “Apply”**. After synchronization, the agent closes the previous VPN connections. The profile, hosts and squads are retained; this node’s inbound bindings are removed. If the node was used for a rehearsal, that trial finishes and its candidate profile is retained.
 
 Open the profile you want to check → **“Test-node rehearsal”**, select the free online node and start the trial. **“Finish trial”** releases the node again. To return it to service, assign a profile and verify a test client connection. Schedule an interruption before releasing a node that serves customers.
+
+[Selfsteal: your own website on a node](selfsteal.md)
+
+## If you closed the installation command
+
+On the node card or in **Diagnostics**, click **Installation command → Get a new command**. The node, profile and settings are kept; the previous installation key stops working. Copy the new command and run it over SSH on the clean node server.
+
+If the agent has already connected, opening the window does not replace its key. To move or reinstall it, use the separate **Replace key** action: after confirming, update the secret on the server.

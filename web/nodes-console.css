@@ -241,3 +241,12 @@
 .node-profile-choice>span{flex:1;min-width:0;overflow-wrap:anywhere}
 .node-profile-choice b,.node-profile-choice small{display:block}
 .node-profile-choice small{margin-top:4px;color:var(--text-2);font-size:12px;line-height:1.5}
+
+/* Installation recovery belongs beside the node status, before diagnostics. */
+.node-install-banner{display:flex;align-items:center;justify-content:space-between;gap:20px;padding:20px;margin-top:20px;border:1px solid var(--border);border-radius:12px;background:var(--accent-dim)}
+.node-install-banner p{margin:6px 0 0;color:var(--text-2)}
+.node-install-banner .btn{flex-shrink:0}
+.node-install-recovery p{line-height:1.6}
+.node-selfsteal{margin:24px 0;padding-top:20px;border-top:1px solid var(--border)}
+.server-card-footer{flex-wrap:wrap;gap:8px}
+@media(max-width:600px){.node-install-banner{align-items:stretch;flex-direction:column}.server-card-footer .btn{flex:1;justify-content:center}}

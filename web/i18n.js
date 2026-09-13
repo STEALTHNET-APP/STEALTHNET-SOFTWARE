@@ -1802,6 +1802,11 @@ function translatedText(s){
   if(!NORMALIZED_DICT)NORMALIZED_DICT=Object.fromEntries(Object.entries(DICT).map(([k,v])=>[normalized(k),v]));
   const t=normalized(s),exact=NORMALIZED_DICT[t];if(exact)return exact;
   const simple=[
+    [/^Данные отчёта: (.+)$/,m=>'Report data: '+translatedText(m[1])],
+    [/^(.+) · Хостер не указан$/,m=>m[1]+' · Provider not specified'],
+    [/^Xray (.+); запуск подтверждён отчётом агента$/,m=>'Xray '+m[1]+'; running according to the agent report'],
+    [/^Профиль (.+); инбаундов: (\d+)$/,m=>'Profile '+m[1]+'; inbounds: '+m[2]],
+    [/^(\d+) активных хостов для выбранных инбаундов$/,m=>m[1]+' active hosts for the selected inbounds'],
     [/^Xray-конфигурация · JSON · раскатывается на (\d+) нод[уы]?$/,m=>'Xray configuration · JSON · deployed to '+m[1]+' node'+(m[1]==='1'?'':'s')],
     [/^строк: (\d+) · символов: (\d+)( · есть несохранённые правки)?$/,m=>'lines: '+m[1]+' · characters: '+m[2]+(m[3]?' · unsaved changes':'')],
 

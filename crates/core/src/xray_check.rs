@@ -100,6 +100,7 @@ pub fn check_structure(config: &Value) -> CheckResult {
     let mut warnings = Vec::new();
     let mut inbounds = Vec::new();
     if let Err(error)=crate::profile_workflow::validate_shape(config){return CheckResult{valid:false,errors:vec![error],warnings,inbounds,engine_checked:false};}
+    if let Err(error)=crate::selfsteal::validate(config){errors.push(error);}
 
     let Some(list) = config.get("inbounds").and_then(|v| v.as_array()) else {
         errors.push("нет секции inbounds — ноде нечего слушать".into());
@@ -338,7 +339,8 @@ pub fn check_full(config: &Value, engine_bin: &str) -> CheckResult {
     // («no such file or directory») и только про первое попавшееся.
     // Здесь причина названа прямо: человек взял заготовку и не дописал
     // ключ или путь к сертификату.
-    let text = config.to_string();
+    let engine_config = crate::selfsteal::engine_config(config);
+    let text = engine_config.to_string();
     let mut left: Vec<&str> = ["ВАШ_ПРИВАТНЫЙ_КЛЮЧ", "ВАШ_SHORT_ID", "ВАШ_ПУТЬ",
                                "СЕРВЕРНЫЙ_КЛЮЧ", "/ПУТЬ/К/", "ВТОРАЯ_НОДА",
                                "UUID_СЕРВИСНОГО_КЛИЕНТА", "ПУБЛИЧНЫЙ_КЛЮЧ_ВТОРОЙ_НОДЫ"]
@@ -357,7 +359,7 @@ pub fn check_full(config: &Value, engine_bin: &str) -> CheckResult {
         return result;
     }
 
-    let Ok(file) = CheckFile::create(config) else {
+    let Ok(file) = CheckFile::create(&engine_config) else {
         return result;
     };
 

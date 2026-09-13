@@ -32,7 +32,7 @@ esac
 TMP=$(mktemp -d); trap 'rm -rf "$TMP"' EXIT
 say "1/5 · Проверяем зависимости"
 missing=()
-for dep in curl unzip jq; do command -v "$dep" >/dev/null || missing+=("$dep"); done
+for dep in curl unzip jq python3; do command -v "$dep" >/dev/null || missing+=("$dep"); done
 [[ -f /etc/ssl/certs/ca-certificates.crt ]] || missing+=(ca-certificates)
 if (( ${#missing[@]} )); then apt-get update -qq; DEBIAN_FRONTEND=noninteractive apt-get install -y -qq "${missing[@]}"; fi
 bootstrap() {

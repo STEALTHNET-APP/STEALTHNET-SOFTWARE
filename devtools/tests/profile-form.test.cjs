@@ -2,7 +2,7 @@
 const {test}=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs'),vm=require('node:vm'),path=require('node:path');
 const root=path.resolve(__dirname,'../..');
 const context=vm.createContext({LANG:'ru',URL,translatedText:s=>s,newProfileModal:null});
-for(const file of ['presets.js','profile-workshop.js'])vm.runInContext(fs.readFileSync(path.join(root,'web',file),'utf8'),context);
+for(const file of ['presets.js','selfsteal-ui.js','profile-workshop.js'])vm.runInContext(fs.readFileSync(path.join(root,'web',file),'utf8'),context);
 const w=vm.runInContext('ProfileWorkshop',context),plain=v=>JSON.parse(JSON.stringify(v));
 const preset=()=>plain(w.builtins().find(p=>p.id==='reality-tcp').config);
 const fields=(cfg,entries)=>{const params=w.parameters(cfg);return plain(w.applyFields(cfg,params,entries.map(([suffix,value])=>{const index=params.findIndex(p=>p.path.endsWith(suffix));assert(index>=0,suffix);return {index,value};})));};
@@ -69,4 +69,18 @@ test('port hints distinguish UDP, internal reverse-proxy ports and Shadowsocks',
 });
 test('a missing Shadowsocks settings object can be completed using the form',()=>{
   const cfg={inbounds:[{tag:'ss',port:8388,protocol:'shadowsocks'}],outbounds:[]};const changed=fields(cfg,[['/method','2022-blake3-aes-128-gcm']]);assert.equal(changed.inbounds[0].settings.method,'2022-blake3-aes-128-gcm');
+});
+test('Selfsteal asks for a domain, keeps title text, and binds SNI and local target together',()=>{
+ const cfg=plain(w.builtins().find(p=>p.id==='selfsteal').config);
+ const params=w.parameters(cfg);assert(!params.some(p=>/\/(target|serverNames)/.test(p.path)));
+ const result=fields(cfg,[['/_selfsteal/domain','https://NL.example.com'],['/_selfsteal/title','Design {{studio}}'],['/_selfsteal/description','Line one\nLine two']]);
+ assert.equal(result._selfsteal.domain,'nl.example.com');assert.equal(result._selfsteal.title,'Design {{studio}}');assert.equal(result._selfsteal.description,'Line one\nLine two');
+ assert.equal(reality(result).target,'127.0.0.1:9443');assert.deepEqual(reality(result).serverNames,['nl.example.com']);assert.equal(reality(result).xver,0);
+ assert.throws(()=>fields(cfg,[['/_selfsteal/domain','example.com:8443']]));
+ const p=w.parameters(result);assert.deepEqual(plain(w.applyFields(result,p,p.map((f,index)=>({index,value:w.displayValue(result,f)})))),result);
+});
+test('a parameterized managed website exposes one domain field instead of raw target or SNI',()=>{
+ const cfg=plain(w.builtins().find(p=>p.id==='selfsteal').config);cfg._selfsteal.domain='{{selfstealDomain}}';reality(cfg).serverNames=['{{serverName}}'];
+ const params=w.parameters(cfg);assert(!params.some(p=>/\/(target|serverNames)/.test(p.path)));
+ const result=fields(cfg,[['/_selfsteal/domain','node.example.com']]);assert.deepEqual(reality(result).serverNames,['node.example.com']);
 });
