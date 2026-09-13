@@ -681,7 +681,7 @@ registerPage({
         {label:'Дублировать', icon:'copy', onClick:async ()=>{
           try {
             await API.call('/api/broadcasts', { method:'POST', body:{
-              title: bc.name + ' (копия)', body: bc.body || '', segment: bc.segment || 'all',button_text:bc.buttonText||null,button_url:bc.buttonUrl||null } });
+              title: bc.name + ' (копия)', body: bc.body || '', segment: bc.segment || 'all',button_text:bc.buttonText||null,button_url:bc.buttonUrl||null,photo_id:bc.photoId||null } });
             toast('Копия создана в черновиках');
             await refreshDB();
           } catch(e){ toast('Не скопировалась: '+e.message, 'err'); }
@@ -700,9 +700,11 @@ registerPage({
   }
 });
 function broadcastModal(bc){
+  let photoId=bc?.photoId||null, photoFile=null, photoUrl=null, photoRevision=0, saving=false;
+  const photoText=(ru,en)=>LANG==='en'?en:ru;
   const isNew = !bc, editable = isNew || bc.status==='draft';
   openDrawer({
-    title:isNew?'Новая рассылка':'Рассылка · '+esc(bc.name), sub:'Telegram-бот · HTML-разметка', icon:'send', size:'lg',
+    title:isNew?photoText('Новая рассылка','New broadcast'):photoText('Рассылка · ','Broadcast · ')+esc(bc.name), sub:'Telegram-бот · HTML-разметка', icon:'send', size:'lg',
     body:`
       ${!isNew?'<div id="broadcastDelivery" class="sub-note" role="status"></div>':''}
       <div class="field"><label>Название (внутреннее)</label><input class="inp" id="bcName" value="${bc?esc(bc.name):''}" placeholder="Август: скидка на годовые"></div>
@@ -715,18 +717,53 @@ function broadcastModal(bc){
           <option value="trial">На пробном тарифе</option>
         </select>
         <div class="hint">В счёт идут только клиенты с привязанным Telegram: остальным сообщение доставить нечем.</div></div>
+      <div class="field bc-photo-field">
+        <label>Фото (необязательно)</label>
+        <div class="bc-photo-preview" id="bcPhotoPreview" hidden><img id="bcPhotoImage" alt="Фото рассылки"></div>
+        <div class="bc-photo-actions">
+          <input type="file" id="bcPhotoFile" accept="image/jpeg,image/png,image/webp" hidden>
+          ${editable?'<button type="button" class="btn" id="bcPhotoChoose">'+I('upload',16)+' <span>Прикрепить фото</span></button><button type="button" class="btn danger" id="bcPhotoRemove" hidden>'+I('trash',16)+' Удалить фото</button>':''}
+          <span class="hint" id="bcPhotoStatus" role="status"></span>
+        </div>
+        <div class="hint">JPG, PNG или WebP · до 10 МБ и 16 Мп. Подпись к фото — до 1024 символов.</div>
+      </div>
       <div class="field"><label>Сообщение</label>
         <textarea class="inp" rows="7" id="bcBody" placeholder="<b>Скидка 25%</b> на годовые тарифы до конца недели!&#10;&#10;Успей продлить → /renew">${bc?esc(bc.body||''):''}</textarea>
         <div class="hint">HTML: &lt;b&gt;, &lt;i&gt;, &lt;a href&gt;, &lt;code&gt;. Плейсхолдеры: {name}, {tariff}, {expire_date}.</div></div>
+      <div class="hint" id="bcBodyCount" aria-live="polite"></div>
       <div class="field"><label>Кнопка (опционально)</label>
         <div class="inp-row"><input class="inp" id="bcBtnText" value="${esc(bc?.buttonText||'')}" placeholder="Текст: 🔥 Продлить со скидкой"><input class="inp mono" id="bcBtnUrl" value="${esc(bc?.buttonUrl||'')}" placeholder="https://…"></div></div>
       <div class="hint">${I('info',12)} Рассылка всегда сохраняется черновиком: отправка — отдельное действие, чтобы случайное нажатие не ушло на всю базу.</div>`,
     footer:`<div class="spacer"></div><button class="btn" data-close>Закрыть</button>
-            ${!isNew?'<button class="btn" data-test>Отправить тест</button>':''}${editable?'<button class="btn primary" data-save>Сохранить черновик</button>':''}${!isNew&&editable?'<button class="btn" data-send>Отправить…</button>':''}`,
+            ${!isNew?'<button class="btn" data-test>Отправить тест</button>':''}${editable?'<button class="btn primary" data-save>Сохранить черновик</button>':''}${!isNew&&editable?'<button class="btn" data-send>'+photoText('Отправить…','Send…')+'</button>':''}`,
     onMount(layer, close){
       layer.querySelector('#bcSeg').value=bc?.segment||'all';
+      const photoInput=layer.querySelector('#bcPhotoFile'), photoImage=layer.querySelector('#bcPhotoImage'),
+        photoPreview=layer.querySelector('#bcPhotoPreview'), photoStatus=layer.querySelector('#bcPhotoStatus'),
+        photoChoose=layer.querySelector('#bcPhotoChoose'), photoRemove=layer.querySelector('#bcPhotoRemove'),
+        bodyInput=layer.querySelector('#bcBody'), counter=layer.querySelector('#bcBodyCount');
+      const countBody=()=>{const limit=photoId||photoFile?1024:4096;counter.textContent=bodyInput.value.length+' / '+limit;counter.classList.toggle('text-danger',bodyInput.value.length>limit);};
+      const showPhoto=url=>{if(photoUrl)URL.revokeObjectURL(photoUrl);photoUrl=url;if(url)photoImage.src=url;else photoImage.removeAttribute('src');photoPreview.hidden=!url;
+        if(photoRemove)photoRemove.hidden=!(photoFile||photoId);
+        if(photoChoose)photoChoose.querySelector('span').textContent=photoFile||photoId?photoText('Заменить фото','Replace photo'):photoText('Прикрепить фото','Attach photo');countBody();};
+      // Revoke temporary URLs when the drawer is removed, including Escape/backdrop.
+      const cleanup=new MutationObserver(()=>{if(!layer.isConnected){if(photoUrl)URL.revokeObjectURL(photoUrl);cleanup.disconnect();}});
+      cleanup.observe(layer.parentNode,{childList:true});
+      bodyInput.addEventListener('input',countBody);countBody();
+      if(photoId){const revision=photoRevision;photoStatus.textContent=photoText('Загрузка фото…','Loading photo…');
+        API.call('/api/broadcasts/media/'+photoId,{responseType:'blob'}).then(blob=>{if(layer.isConnected&&revision===photoRevision){showPhoto(URL.createObjectURL(blob));photoStatus.textContent=photoText('Фото сохранено в рассылке','Photo saved in this broadcast');}})
+          .catch(e=>{if(layer.isConnected&&revision===photoRevision)photoStatus.textContent=e.message;});}
+      if(editable){
+        photoChoose.onclick=()=>photoInput.click();
+        photoInput.onchange=()=>{const file=photoInput.files[0];photoInput.value='';if(!file||saving)return;
+          if(!['image/jpeg','image/png','image/webp'].includes(file.type)){toast(photoText('Выберите фото JPG, PNG или WebP','Choose a JPG, PNG or WebP photo'),'err');return;}
+          if(file.size>10*1024*1024){toast(photoText('Фото должно быть не больше 10 МБ','Photo must be no larger than 10 MB'),'err');return;}
+          photoRevision++;photoFile=file;photoId=null;showPhoto(URL.createObjectURL(file));photoStatus.textContent=photoText('Сохранится вместе с черновиком','Will be saved with the draft');};
+        photoRemove.onclick=()=>{photoRevision++;photoFile=null;photoId=null;showPhoto(null);photoStatus.textContent=photoText('Фото удалено. Сохраните черновик','Photo removed. Save the draft');};
+      }
+
       if(!isNew){API.call('/api/broadcasts/'+bc.id).then(r=>{if(!layer.isConnected)return;const box=layer.querySelector('#broadcastDelivery');box.innerHTML=(r.last_error?'<p class="sub-note">'+esc(r.last_error)+'</p>':'')+(r.retry_at?'<p>Повтор: '+esc(fmtDT(r.retry_at))+'</p>':'')+r.errors.map(x=>'<p>'+esc(x.username)+': '+esc(x.error)+'</p>').join('');translateNode(box);}).catch(e=>{if(layer.isConnected)layer.querySelector('#broadcastDelivery').textContent=e.message;});
-        layer.querySelector('[data-test]').onclick=()=>openModal({title:'Тестовая отправка',size:'sm',body:'<form id="broadcastTestForm"><label for="broadcastTestId">Telegram ID получателя</label><input class="inp" id="broadcastTestId" inputmode="numeric" pattern="[0-9]+" required><p class="sub-note">Отправляется сохранённый текст с кнопкой. Получатель должен предварительно запустить вашего бота.</p></form>',footer:'<button class="btn" data-close>Отмена</button><button class="btn primary" type="submit" form="broadcastTestForm">Отправить тест</button>',onMount(m,done){m.querySelector('form').onsubmit=async e=>{e.preventDefault();const b=m.querySelector('[type=submit]');b.disabled=true;try{await API.call('/api/broadcasts/'+bc.id+'/send',{method:'POST',body:{test_to:Number(m.querySelector('input').value)}});done();toast('Тест доставлен');}catch(e){toast(e.message,'err');b.disabled=false;}};}});
+        layer.querySelector('[data-test]').onclick=()=>openModal({title:'Тестовая отправка',size:'sm',body:'<form id="broadcastTestForm"><label for="broadcastTestId">Telegram ID получателя</label><input class="inp" id="broadcastTestId" inputmode="numeric" pattern="[0-9]+" required><p class="sub-note">Отправляются сохранённые фото, текст и кнопка. Получатель должен предварительно запустить вашего бота.</p></form>',footer:'<button class="btn" data-close>Отмена</button><button class="btn primary" type="submit" form="broadcastTestForm">Отправить тест</button>',onMount(m,done){m.querySelector('form').onsubmit=async e=>{e.preventDefault();const b=m.querySelector('[type=submit]');b.disabled=true;try{await API.call('/api/broadcasts/'+bc.id+'/send',{method:'POST',body:{test_to:Number(m.querySelector('input').value)}});done();toast('Тест доставлен');}catch(e){toast(e.message,'err');b.disabled=false;}};}});
       }
 
       if(!editable) layer.querySelectorAll('.m-body input,.m-body select,.m-body textarea').forEach(el=>el.disabled=true);
@@ -734,11 +771,13 @@ function broadcastModal(bc){
       if (save) save.addEventListener('click', async ()=>{
         const title = layer.querySelector('#bcName').value.trim();
         const body = layer.querySelector('#bcBody').value.trim();
-        if (!title || !body) { toast('Нужны название и текст', 'err'); return; }
-        save.disabled = true;
+        if (!title || (!body && !photoId && !photoFile)) { toast(photoText('Нужны название и текст или фото','Enter a title and text or a photo'), 'err'); return; }
+        if(body.length>(photoId||photoFile?1024:4096)){toast(photoText('Сократите сообщение до указанного лимита','Shorten the message to the displayed limit'),'err');return;}
+        saving=true;save.disabled = true;if(photoChoose)photoChoose.disabled=true;if(photoRemove)photoRemove.disabled=true;
         try {
+          if(photoFile){photoStatus.textContent=photoText('Сохраняем фото…','Saving photo…');const uploaded=await API.call('/api/broadcasts/media',{method:'POST',body:photoFile,raw:true});photoId=uploaded.id;photoFile=null;photoStatus.textContent=photoText('Фото загружено','Photo uploaded');}
           const r = await API.call('/api/broadcasts'+(isNew?'':'/'+bc.id), { method:isNew?'POST':'PATCH', body:{
-            title, body,
+            title, body, photo_id:photoId,
             segment: layer.querySelector('#bcSeg').value,
             button_text: layer.querySelector('#bcBtnText').value.trim() || null,
             button_url: layer.querySelector('#bcBtnUrl').value.trim() || null,
@@ -746,7 +785,7 @@ function broadcastModal(bc){
           close();
           toast('Черновик сохранён');
           await refreshDB();
-        } catch(e){ toast('Не сохранилось: '+e.message, 'err'); save.disabled = false; }
+        } catch(e){ toast('Не сохранилось: '+e.message, 'err'); } finally {saving=false;save.disabled=false;if(photoChoose)photoChoose.disabled=false;if(photoRemove)photoRemove.disabled=false;}
       });
 
       const send = layer.querySelector('[data-send]');

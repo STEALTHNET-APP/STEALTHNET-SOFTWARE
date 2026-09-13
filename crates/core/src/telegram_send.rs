@@ -36,16 +36,69 @@ pub async fn send(
     text: &str,
     keyboard: &Option<Value>,
 ) -> Delivery {
+    send_with_photo(http, endpoint, token, chat, text, keyboard, None).await
+}
+pub struct Photo {
+    pub data: Vec<u8>,
+    pub content_type: String,
+}
+pub async fn load_photo(
+    pool: &crate::Pool,
+    id: Option<uuid::Uuid>,
+) -> crate::Result<Option<Photo>> {
+    use sqlx::Row;
+    let Some(id) = id else { return Ok(None) };
+    let row = sqlx::query("SELECT data,content_type FROM broadcast_media WHERE id=$1")
+        .bind(id)
+        .fetch_optional(pool)
+        .await?
+        .ok_or(crate::Error::NotFound)?;
+    Ok(Some(Photo {
+        data: row.get("data"),
+        content_type: row.get("content_type"),
+    }))
+}
+pub async fn send_with_photo(
+    http: &reqwest::Client,
+    endpoint: &str,
+    token: &str,
+    chat: i64,
+    text: &str,
+    keyboard: &Option<Value>,
+    photo: Option<&Photo>,
+) -> Delivery {
     let mut body = json!({"chat_id":chat,"text":text,"parse_mode":"HTML","link_preview_options":{"is_disabled":true}});
     if let Some(kb) = keyboard {
         body["reply_markup"] = kb.clone();
     }
-    match http
-        .post(format!("{endpoint}/bot{token}/sendMessage"))
-        .json(&body)
-        .send()
-        .await
-    {
+    let request = if let Some(photo) = photo {
+        let ext = if photo.content_type == "image/png" {
+            "png"
+        } else {
+            "jpg"
+        };
+        let part = match reqwest::multipart::Part::bytes(photo.data.clone())
+            .file_name(format!("photo.{ext}"))
+            .mime_str(&photo.content_type)
+        {
+            Ok(part) => part,
+            Err(_) => return Delivery::Stop("Некорректный формат фото".into()),
+        };
+        let mut form = reqwest::multipart::Form::new()
+            .text("chat_id", chat.to_string())
+            .text("caption", text.to_owned())
+            .text("parse_mode", "HTML")
+            .part("photo", part);
+        if let Some(kb) = keyboard {
+            form = form.text("reply_markup", kb.to_string());
+        }
+        http.post(format!("{endpoint}/bot{token}/sendPhoto"))
+            .multipart(form)
+    } else {
+        http.post(format!("{endpoint}/bot{token}/sendMessage"))
+            .json(&body)
+    };
+    match request.send().await {
         Ok(r) => {
             let status = r.status().as_u16();
             let value = r.json::<Value>().await.unwrap_or(Value::Null);

@@ -932,3 +932,24 @@ Object.assign(DICT, {
 });
 
 DICT['Завершена с ошибками']='Completed with errors';
+
+Object.assign(DICT, {
+  "Фото (необязательно)": "Photo (optional)",
+  "Фото рассылки": "Broadcast photo",
+  "Прикрепить фото": "Attach photo",
+  "Заменить фото": "Replace photo",
+  "Удалить фото": "Remove photo",
+  "JPG, PNG или WebP · до 10 МБ и 16 Мп. Подпись к фото — до 1024 символов.": "JPG, PNG or WebP · up to 10 MB and 16 MP. Photo captions: up to 1024 characters.",
+  "Отправляются сохранённые фото, текст и кнопка. Получатель должен предварительно запустить вашего бота.": "Sends the saved photo, text and button. The recipient must start your bot first.",
+  "Фото должно быть не больше 10 МБ": "Photo must be no larger than 10 MB",
+  "Выберите фото JPG, PNG или WebP": "Choose a JPG, PNG or WebP photo",
+  "Не удалось прочитать фото: файл повреждён": "Cannot read the photo: the file is damaged",
+  "Не удалось прочитать фото: файл повреждён или слишком большой": "Cannot read the photo: the file is damaged or too large",
+  "Фото: до 16 Мп, сумма сторон до 10000 пикселей, соотношение сторон до 20:1": "Photo: up to 16 MP, combined width and height up to 10000 pixels, aspect ratio up to 20:1",
+  "Подготовленное фото больше 10 МБ. Уменьшите изображение": "The prepared photo exceeds 10 MB. Reduce its dimensions",
+  "Не удалось подготовить фото": "Could not prepare the photo",
+  "Фото обрабатываются. Повторите через несколько секунд": "Photos are being processed. Try again in a few seconds",
+  "Слишком много загрузок фото. Повторите через 5 минут": "Too many photo uploads. Try again in 5 minutes",
+  "Фото не найдено. Прикрепите его ещё раз": "Photo not found. Attach it again",
+  "нужны название и текст или фото рассылки": "Enter a broadcast title and text or a photo"
+});

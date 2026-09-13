@@ -26,13 +26,14 @@ async fn tick_at(pool: &Pool, token: &str, endpoint: &str) -> Result<()> {
         WHERE id=(SELECT id FROM broadcasts WHERE status IN ('scheduled','sending')
         AND (scheduled_at IS NULL OR scheduled_at<=now()) AND (retry_at IS NULL OR retry_at<=now())
         ORDER BY COALESCE(retry_at,scheduled_at,created_at),id LIMIT 1)
-        RETURNING id,body,button_text,button_url,segment,recipients_prepared",
+        RETURNING id,body,button_text,button_url,segment,recipients_prepared,photo_id",
     )
     .fetch_optional(pool)
     .await?;
     let Some(r) = row else { return Ok(()) };
     let id: i64 = r.get("id");
     let body: String = r.get("body");
+    let photo = telegram_send::load_photo(pool, r.get("photo_id")).await?;
     let label: Option<String> = r.get("button_text");
     let url: Option<String> = r.get("button_url");
     let keyboard = match (label, url) {
@@ -88,7 +89,18 @@ async fn tick_at(pool: &Pool, token: &str, endpoint: &str) -> Result<()> {
                 .unwrap_or_else(|| "бессрочно".into()),
         );
         let result = match r.get::<String, _>("chat_id").parse::<i64>() {
-            Ok(chat) => telegram_send::send(&http, endpoint, token, chat, &text, &keyboard).await,
+            Ok(chat) => {
+                telegram_send::send_with_photo(
+                    &http,
+                    endpoint,
+                    token,
+                    chat,
+                    &text,
+                    &keyboard,
+                    photo.as_ref(),
+                )
+                .await
+            }
             Err(_) => Delivery::Permanent("Некорректный Telegram ID".into()),
         };
         match result {
@@ -169,6 +181,34 @@ mod integration {
             }),
         )
     }
+    async fn respond_photo(
+        State(s): State<Mock>,
+        headers: axum::http::HeaderMap,
+        body: axum::body::Bytes,
+    ) -> (StatusCode, Json<serde_json::Value>) {
+        let kind = headers.get("content-type").unwrap().to_str().unwrap();
+        assert!(kind.starts_with("multipart/form-data; boundary="));
+        let body = String::from_utf8_lossy(&body);
+        for part in [
+            "name=\"chat_id\"",
+            "123456789",
+            "name=\"caption\"",
+            "Hello QA Alice",
+            "name=\"photo\"",
+            "image/png",
+            "name=\"reply_markup\"",
+            "https://example.test",
+            "name=\"parse_mode\"",
+            "HTML",
+        ] {
+            assert!(body.contains(part), "missing multipart field {part}");
+        }
+        s.calls.fetch_add(1, Ordering::SeqCst);
+        (
+            StatusCode::OK,
+            Json(json!({"ok":true,"result":{"message_id":2}})),
+        )
+    }
     async fn campaign(pool: &Pool, segment: &str) -> i64 {
         sqlx::query_scalar("INSERT INTO broadcasts(title,body,status,segment) VALUES('QA','Hello {name}','scheduled',jsonb_build_object('kind',$1::text)) RETURNING id").bind(segment).fetch_one(pool).await.unwrap()
     }
@@ -231,6 +271,7 @@ mod integration {
                 listener,
                 Router::new()
                     .route("/botQA/sendMessage", post(respond))
+                    .route("/botQA/sendPhoto", post(respond_photo))
                     .with_state(mock.clone()),
             )
             .into_future(),
@@ -298,6 +339,14 @@ mod integration {
         let calls = mock.calls.load(Ordering::SeqCst);
         tick_at(&pool, "QA", &endpoint).await.unwrap();
         assert_eq!(mock.calls.load(Ordering::SeqCst), calls);
+        let photo_id: String=sqlx::query_scalar("INSERT INTO broadcast_media(id,content_type,data,width,height) VALUES(gen_random_uuid(),'image/png',decode('89504e470d0a1a0a','hex'),1,1) RETURNING id::text").fetch_one(&pool).await.unwrap();
+        let photo_job = campaign(&pool, "all").await;
+        sqlx::query("UPDATE broadcasts SET photo_id=$2::text::uuid,button_text='Open',button_url='https://example.test' WHERE id=$1").bind(photo_job).bind(photo_id).execute(&pool).await.unwrap();
+        tick_at(&pool, "QA", &endpoint).await.unwrap();
+        assert_eq!(state(&pool, photo_job).await, ("sent".into(), 1, 0));
+        assert_eq!(mock.calls.load(Ordering::SeqCst), calls + 1);
+        tick_at(&pool, "QA", &endpoint).await.unwrap();
+        assert_eq!(mock.calls.load(Ordering::SeqCst), calls + 1);
         server.abort();
         pool.close().await;
         sqlx::query(&format!("DROP SCHEMA {schema} CASCADE"))

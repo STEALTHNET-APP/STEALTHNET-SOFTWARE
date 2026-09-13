@@ -4,6 +4,7 @@ mod admin_routes;
 mod team;
 mod catalog_routes;
 mod crm_routes;
+mod broadcast_media;
 mod infra_routes;
 mod miniapp;
 mod cabinet;
@@ -89,6 +90,7 @@ async fn main() -> Result<()> {
         .merge(node_admin::node_admin_routes())
         .merge(sub_routes::sub_routes())
         .merge(crm_routes::crm_routes())
+        .merge(broadcast_media::routes())
         .merge(catalog_routes::catalog_routes())
         .merge(sub_service::sub_service_routes())
         .merge(infra_routes::infra_routes())

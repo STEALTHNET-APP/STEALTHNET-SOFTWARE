@@ -651,7 +651,7 @@ async fn ticket_close(
 async fn broadcasts_list(_a: CurrentAdmin, State(st): State<AppState>) -> Result<Json<Value>> {
     let rows = sqlx::query(
         "SELECT id, title, body, status::text AS status, segment, total_count, sent_count,
-                failed_count, button_text, button_url, scheduled_at, created_at, last_error, retry_at
+                failed_count, button_text, button_url, scheduled_at, created_at, last_error, retry_at, photo_id
            FROM broadcasts ORDER BY id DESC LIMIT 100",
     )
     .fetch_all(&st.pool)
@@ -670,6 +670,7 @@ async fn broadcasts_list(_a: CurrentAdmin, State(st): State<AppState>) -> Result
             "body": r.get::<String, _>("body"),
             "button_text": r.get::<Option<String>, _>("button_text"),
             "button_url": r.get::<Option<String>, _>("button_url"),
+            "photo_id": r.get::<Option<uuid::Uuid>, _>("photo_id"),
             "total_count": r.get::<i32, _>("total_count"),
             "sent_count": r.get::<i32, _>("sent_count"),
             "failed_count": r.get::<i32, _>("failed_count"),
@@ -681,17 +682,21 @@ async fn broadcasts_list(_a: CurrentAdmin, State(st): State<AppState>) -> Result
 }
 
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct BroadcastBody {
     title: String,
     body: String,
     segment: Option<String>,
     button_text: Option<String>,
     button_url: Option<String>,
+    #[serde(default, deserialize_with = "crate::state::patch_field")]
+    photo_id: Option<Option<uuid::Uuid>>,
 }
 
 fn validate_broadcast(b: &BroadcastBody) -> Result<()> {
-    if b.title.trim().is_empty() || b.body.trim().is_empty() { return Err(Error::bad("нужны название и текст рассылки")); }
-    if b.body.chars().count()>4096 { return Err(Error::bad("сообщение слишком длинное: максимум 4096 символов")); }
+    if b.title.trim().is_empty() || (b.body.trim().is_empty() && b.photo_id.flatten().is_none()) { return Err(Error::bad("нужны название и текст или фото рассылки")); }
+    let limit = if b.photo_id.flatten().is_some() { 1024 } else { 4096 };
+    if b.body.encode_utf16().count()>limit { return Err(Error::bad(format!("Сообщение слишком длинное: максимум {limit} символов (с фото — 1024)"))); }
     if !["all","active","expired","limited","trial"].contains(&b.segment.as_deref().unwrap_or("all")) { return Err(Error::bad("неизвестный сегмент рассылки")); }
     let label=b.button_text.as_deref().unwrap_or("").trim(); let url=b.button_url.as_deref().unwrap_or("").trim();
     if label.is_empty()!=url.is_empty() { return Err(Error::bad("для кнопки нужны подпись и ссылка")); }
@@ -699,13 +704,23 @@ fn validate_broadcast(b: &BroadcastBody) -> Result<()> {
     Ok(())
 }
 
-async fn broadcast_update(CurrentAdmin(admin): CurrentAdmin, State(st): State<AppState>, Path(id): Path<i64>, Json(b): Json<BroadcastBody>) -> Result<Json<Value>> {
-    validate_broadcast(&b)?;
+async fn validate_photo(tx: &mut sqlx::Transaction<'_, sqlx::Postgres>, id: Option<uuid::Uuid>) -> Result<()> {
+    if let Some(id) = id {
+        let found = sqlx::query("SELECT id FROM broadcast_media WHERE id=$1 FOR KEY SHARE").bind(id).fetch_optional(&mut **tx).await?;
+        if found.is_none() { return Err(Error::bad("Фото не найдено. Прикрепите его ещё раз")); }
+    }
+    Ok(())
+}
+
+async fn broadcast_update(CurrentAdmin(admin): CurrentAdmin, State(st): State<AppState>, Path(id): Path<i64>, Json(mut b): Json<BroadcastBody>) -> Result<Json<Value>> {
     let mut tx=st.pool.begin().await?;
-    let status: Option<String> = sqlx::query_scalar("SELECT status::text FROM broadcasts WHERE id=$1 FOR UPDATE").bind(id).fetch_optional(&mut *tx).await?;
-    match status.as_deref() { None=>return Err(Error::NotFound),Some("draft")=>{},_=>return Err(Error::Conflict("изменять можно только черновик; создайте копию рассылки".into())) }
-    sqlx::query("UPDATE broadcasts SET title=$2,body=$3,segment=$4,button_text=$5,button_url=$6 WHERE id=$1")
-        .bind(id).bind(b.title.trim()).bind(b.body.trim()).bind(json!({"kind":b.segment.unwrap_or_else(||"all".into())})).bind(b.button_text).bind(b.button_url).execute(&mut *tx).await?;
+    let existing = sqlx::query("SELECT status::text,photo_id FROM broadcasts WHERE id=$1 FOR UPDATE").bind(id).fetch_optional(&mut *tx).await?.ok_or(Error::NotFound)?;
+    if existing.get::<String,_>("status") != "draft" { return Err(Error::Conflict("изменять можно только черновик; создайте копию рассылки".into())); }
+    if b.photo_id.is_none() { b.photo_id=Some(existing.get("photo_id")); }
+    validate_broadcast(&b)?;
+    validate_photo(&mut tx, b.photo_id.flatten()).await?;
+    sqlx::query("UPDATE broadcasts SET title=$2,body=$3,segment=$4,button_text=$5,button_url=$6,photo_id=$7 WHERE id=$1")
+        .bind(id).bind(b.title.trim()).bind(b.body.trim()).bind(json!({"kind":b.segment.unwrap_or_else(||"all".into())})).bind(b.button_text).bind(b.button_url).bind(b.photo_id.flatten()).execute(&mut *tx).await?;
     sqlx::query("UPDATE broadcasts b SET total_count=(SELECT count(*) FROM client_overview co
         WHERE EXISTS(SELECT 1 FROM client_identities i WHERE i.client_id=co.id AND i.kind='telegram')
         AND ((b.segment->>'kind')='all' OR co.status::text=(b.segment->>'kind') OR
@@ -744,10 +759,12 @@ async fn broadcast_create(
     .fetch_one(&st.pool)
     .await?;
 
+    let mut tx = st.pool.begin().await?;
+    validate_photo(&mut tx, b.photo_id.flatten()).await?;
     let id: i64 = sqlx::query_scalar(
         "INSERT INTO broadcasts (title, body, button_text, button_url, segment,
-                                 status, total_count, created_by)
-         VALUES ($1, $2, $3, $4, $5, 'draft', $6, $7) RETURNING id",
+                                 status, total_count, created_by, photo_id)
+         VALUES ($1, $2, $3, $4, $5, 'draft', $6, $7, $8) RETURNING id",
     )
     .bind(b.title.trim())
     .bind(b.body.trim())
@@ -756,8 +773,10 @@ async fn broadcast_create(
     .bind(json!({ "kind": segment }))
     .bind(total as i32)
     .bind(admin.id)
-    .fetch_one(&st.pool)
+    .bind(b.photo_id.flatten())
+    .fetch_one(&mut *tx)
     .await?;
+    tx.commit().await?;
 
     Ok(Json(json!({ "id": id, "audience_size": total, "total_count": total })))
 }
@@ -777,7 +796,7 @@ async fn broadcast_send(
     Path(id): Path<i64>,
     Json(b): Json<SendBody>,
 ) -> Result<Json<Value>> {
-    let row = sqlx::query("SELECT status::text AS status, body, title FROM broadcasts WHERE id = $1")
+    let row = sqlx::query("SELECT status::text AS status, body, title, photo_id FROM broadcasts WHERE id = $1")
         .bind(id)
         .fetch_optional(&st.pool)
         .await?
@@ -794,7 +813,8 @@ async fn broadcast_send(
             (Some(t),Some(u)) if !t.is_empty() && !u.is_empty()=>Some(json!({"inline_keyboard":[[{"text":t,"url":u}]]})),_=>None};
         let text=sn_core::telegram_send::personalize(row.get("body"),&admin.username,"—","—");
         let http=sn_core::telegram_send::client()?;
-        return match sn_core::telegram_send::send(&http,sn_core::telegram_send::API,&token,chat,&text,&keyboard).await {
+        let photo=sn_core::telegram_send::load_photo(&st.pool,row.get("photo_id")).await?;
+        return match sn_core::telegram_send::send_with_photo(&http,sn_core::telegram_send::API,&token,chat,&text,&keyboard,photo.as_ref()).await {
             sn_core::telegram_send::Delivery::Sent=>Ok(Json(json!({"ok":true,"test":true}))),
             sn_core::telegram_send::Delivery::Permanent(e)|sn_core::telegram_send::Delivery::Stop(e)=>Err(Error::bad(e)),
             sn_core::telegram_send::Delivery::Retry{error,..}=>Err(Error::bad(error)),
@@ -984,4 +1004,26 @@ async fn broadcast_details(_a:CurrentAdmin,State(st):State<AppState>,Path(id):Pa
     let r=sqlx::query("SELECT last_error,retry_at,status::text AS status FROM broadcasts WHERE id=$1").bind(id).fetch_optional(&st.pool).await?.ok_or(Error::NotFound)?;
     let errors=sqlx::query("SELECT d.client_id,c.username,d.error,d.attempts FROM broadcast_deliveries d JOIN clients c ON c.id=d.client_id WHERE d.broadcast_id=$1 AND d.error IS NOT NULL ORDER BY d.client_id LIMIT 100").bind(id).fetch_all(&st.pool).await?;
     Ok(Json(json!({"last_error":r.get::<Option<String>,_>("last_error"),"retry_at":dt(&r,"retry_at"),"status":r.get::<String,_>("status"),"errors":errors.iter().map(|r|json!({"client_id":r.get::<i64,_>("client_id"),"username":r.get::<String,_>("username"),"error":r.get::<String,_>("error"),"attempts":r.get::<i32,_>("attempts")})).collect::<Vec<_>>()})))
+}
+
+#[cfg(test)]
+mod broadcast_content_tests {
+    use super::*;
+    #[test]
+    fn photo_caption_and_patch_semantics() {
+        let base=json!({"title":"Photo","body":"hello"});
+        let omitted: BroadcastBody=serde_json::from_value(base.clone()).unwrap();
+        assert!(omitted.photo_id.is_none());
+        let mut value=base;
+        value["photo_id"]=Value::Null;
+        let removed: BroadcastBody=serde_json::from_value(value.clone()).unwrap();
+        assert_eq!(removed.photo_id,Some(None));
+        value["photo_id"]=json!(uuid::Uuid::new_v4());
+        value["body"]=json!("x".repeat(1025));
+        assert!(validate_broadcast(&serde_json::from_value(value.clone()).unwrap()).is_err());
+        value["body"]=json!("");
+        assert!(validate_broadcast(&serde_json::from_value(value.clone()).unwrap()).is_ok());
+        value["photo_id"]=Value::Null;
+        assert!(validate_broadcast(&serde_json::from_value(value).unwrap()).is_err());
+    }
 }

@@ -26,6 +26,7 @@ sha2.workspace = true
 hex.workspace = true
 semver = "1"
 hmac.workspace = true
+image = { version = "0.25.10", default-features = false, features = ["jpeg", "png", "webp"] }
 
 [[bin]]
 name = "sn-api"

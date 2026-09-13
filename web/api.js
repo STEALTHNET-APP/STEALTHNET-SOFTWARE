@@ -12,7 +12,7 @@ const API = {
     t ? localStorage.setItem('sn_token', t) : localStorage.removeItem('sn_token');
   },
 
-  async call(path, { method = 'GET', body } = {}) {
+  async call(path, { method = 'GET', body, raw = false, responseType = 'json' } = {}) {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 30000);
     let res;
@@ -20,10 +20,10 @@ const API = {
       method,
       signal: controller.signal,
       headers: {
-        ...(body ? { 'Content-Type': 'application/json' } : {}),
+        ...(body ? { 'Content-Type': raw ? (body.type || 'application/octet-stream') : 'application/json' } : {}),
         ...(this.token ? { Authorization: 'Bearer ' + this.token } : {}),
       },
-      body: body ? JSON.stringify(body) : undefined,
+      body: body ? (raw ? body : JSON.stringify(body)) : undefined,
     }); } catch (error) {
       if (controller.signal.aborted) throw new Error('Сервер не ответил за 30 секунд. Проверьте соединение и повторите запрос.');
       throw error;
@@ -40,7 +40,7 @@ const API = {
       try { message = (await res.json()).error || message; } catch (_) {}
       const error = new Error(message); error.status = res.status; throw error;
     }
-    return res.status === 204 ? null : res.json();
+    return res.status === 204 ? null : responseType === 'blob' ? res.blob() : res.json();
   },
 
   login: (username, password, code) =>
@@ -332,7 +332,7 @@ async function loadDB() {
       audience: { all:'все клиенты', active:'активные', expired:'истёкшие',
                   limited:'на лимите', trial:'на пробном' }[b.segment] || b.segment || 'все',
       body: b.body || '',
-      total: b.total_count || 0, buttonText:b.button_text||'',buttonUrl:b.button_url||'',failed:b.failed_count||0,
+      total: b.total_count || 0, buttonText:b.button_text||'',buttonUrl:b.button_url||'',photoId:b.photo_id||null,failed:b.failed_count||0,
       sent: b.sent_count, opened: 0, at: b.scheduled_at || b.created_at,
     })),
     loadOptional('/api/srh', (r) => ({

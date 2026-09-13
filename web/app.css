@@ -1269,3 +1269,13 @@ input,textarea{caret-color:var(--primary)}
  .step-status{font-size:0}.step-status svg{width:18px}
 }
 @media(prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important;scroll-behavior:auto!important}}
+
+/* Broadcast attachment: full preview with explicit actions and no public URL. */
+.bc-photo-field { border:1px solid var(--border); border-radius:14px; padding:18px; }
+.bc-photo-preview { margin-bottom:14px; border-radius:10px; overflow:hidden; background:var(--bg); }
+.bc-photo-preview[hidden], .bc-photo-actions [hidden] { display:none; }
+.bc-photo-preview img { display:block; width:100%; max-height:300px; object-fit:contain; }
+.bc-photo-actions { display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
+.bc-photo-field > .hint { margin-top:10px; }
+#bcBodyCount { text-align:right; margin-top:-12px; margin-bottom:16px; font-variant-numeric:tabular-nums; }
+#bcBodyCount.text-danger { color:var(--danger,#dc2626); }

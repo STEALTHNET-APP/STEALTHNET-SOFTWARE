@@ -20,9 +20,9 @@
 ```bash
 apt-get update
 apt-get install -y git curl ca-certificates
-git clone --branch v0.1.2 --depth 1 https://github.com/STEALTHNET-APP/STEALTHNET-SOFTWARE.git /root/stealthnet-installer
+git clone --branch v0.1.3 --depth 1 https://github.com/STEALTHNET-APP/STEALTHNET-SOFTWARE.git /root/stealthnet-installer
 cd /root/stealthnet-installer
-bash install.sh --version v0.1.2
+bash install.sh --version v0.1.3
 ```
 
 Откроется мастер: укажите домены панели и подписки, название сервиса, валюту и данные владельца. Установщик сам скачает готовый релиз для архитектуры сервера, проверит SHA256 и установит PostgreSQL, системные службы и HTTPS. Компилировать Rust не требуется.
@@ -84,12 +84,12 @@ stealthnet update
 Конкретный опубликованный релиз:
 
 ```bash
-make update VERSION=v0.1.2
+make update VERSION=v0.1.3
 # или
-stealthnet update --version v0.1.2
+stealthnet update --version v0.1.3
 ```
 
-Команды с `v0.1.2` иллюстрируют синтаксис; этот тег должен действительно существовать в Releases.
+Выбирайте существующий тег из Releases. `make update` без версии выбирает последний стабильный релиз.
 
 Обновление проверяет файлы, создаёт PostgreSQL dump и копию конфигурации, применяет миграции, атомарно переключает `current`, перезапускает службы панели и проверяет их. Ноды и их Xray не перезапускаются. Их обновление выполняется отдельно из раздела нод. Кабинет и отдельный сервис подписок обновляются своими командами.
 

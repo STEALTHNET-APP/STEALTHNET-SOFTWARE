@@ -3,7 +3,7 @@ resolver = "2"
 members = ["crates/core", "crates/payments", "crates/api", "crates/sub", "crates/bot", "crates/node", "crates/worker"]
 
 [workspace.package]
-version = "0.1.2"
+version = "0.1.3"
 edition = "2021"
 license = "AGPL-3.0-only"
 
@@ -29,4 +29,4 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 regex = "1"
 async-trait = "0.1"
-reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "multipart"] }
