@@ -5,6 +5,7 @@ import fcntl
 import getpass
 import hashlib
 import importlib.util
+import io
 import json
 import os
 from pathlib import Path
@@ -130,27 +131,34 @@ def validate_config(c):
     if c['proxy'] not in ('caddy','external'): raise InstallError('proxy: caddy или external')
     return c
 
+def terminal():
+    # Buffered r+ requires seeking, which a real SSH terminal cannot do.
+    # A raw bidirectional descriptor supports prompts and input without seeking.
+    try:
+        return io.TextIOWrapper(open('/dev/tty', 'r+b', buffering=0),
+                                encoding='utf-8', line_buffering=True)
+    except OSError as exc:
+        raise InstallError('Не удалось открыть терминал для вопросов. Запустите установщик в интерактивном SSH-сеансе (ssh -t) или передайте --config /root/install.json (права 600).') from exc
+
 def wizard():
-    try: tty = open('/dev/tty','r+')
-    except OSError: raise InstallError('Нет терминала. Передайте --config /root/install.json (права 600).')
-    def ask(label, default=''):
-        tty.write(f'  {label}'+(f' [{default}]' if default else '')+': '); tty.flush()
-        line = tty.readline()
-        if not line: raise InstallError('Ввод прерван.')
-        return line.strip() or default
-    ui('\n  STEALTHNET  /  Новый сервер', '1;36')
-    ui('  Два домена должны указывать на IP этого сервера.\n', '90')
-    c = {'panel_domain':ask('Домен панели'), 'sub_domain':ask('Домен подписок'),
-         'brand':ask('Название вашего сервиса'), 'currency':ask('Валюта проекта','USD').upper(),
-         'admin_user':ask('Логин владельца','admin')}
-    c['admin_password'] = getpass.getpass('  Пароль владельца (Enter — создать надёжный): ',stream=tty)
-    if c['admin_password']:
-        again = getpass.getpass('  Повторите пароль: ',stream=tty)
-        if again != c['admin_password']: raise InstallError('Пароли не совпадают. Запустите установщик повторно.')
-    else: c['admin_password'] = secrets.token_urlsafe(21)
-    c['bot_token'] = getpass.getpass('  Токен Telegram-бота (Enter — настроить позже): ',stream=tty)
-    tty.close()
-    return validate_config(c)
+    with terminal() as tty:
+        def ask(label, default=''):
+            tty.write(f'  {label}'+(f' [{default}]' if default else '')+': '); tty.flush()
+            line = tty.readline()
+            if not line: raise InstallError('Ввод прерван.')
+            return line.strip() or default
+        ui('\n  STEALTHNET  /  Новый сервер', '1;36')
+        ui('  Два домена должны указывать на IP этого сервера.\n', '90')
+        c = {'panel_domain':ask('Домен панели'), 'sub_domain':ask('Домен подписок'),
+             'brand':ask('Название вашего сервиса'), 'currency':ask('Валюта проекта','USD').upper(),
+             'admin_user':ask('Логин владельца','admin')}
+        c['admin_password'] = getpass.getpass('  Пароль владельца (Enter — создать надёжный): ',stream=tty)
+        if c['admin_password']:
+            again = getpass.getpass('  Повторите пароль: ',stream=tty)
+            if again != c['admin_password']: raise InstallError('Пароли не совпадают. Запустите установщик повторно.')
+        else: c['admin_password'] = secrets.token_urlsafe(21)
+        c['bot_token'] = getpass.getpass('  Токен Telegram-бота (Enter — настроить позже): ',stream=tty)
+        return validate_config(c)
 
 def env_text(values):
     # systemd EnvironmentFile, not shell. Escape backslashes and double quotes.
@@ -540,7 +548,7 @@ def maintenance(action):
         if c['proxy']=='external': ui('  Проверены локальные службы. Внешний HTTPS управляется отдельно.','33')
         return
     if action=='admin-password':
-        with open('/dev/tty','r+') as tty:
+        with terminal() as tty:
             tty.write('  Логин администратора: '); tty.flush(); username=tty.readline().strip()
             password=getpass.getpass('  Новый пароль (12–128 символов): ',stream=tty)
             again=getpass.getpass('  Повторите пароль: ',stream=tty)

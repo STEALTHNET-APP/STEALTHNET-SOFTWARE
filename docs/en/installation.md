@@ -136,3 +136,9 @@ Store your images in `/opt/stealthnet-software/shared/public/`, for example `log
 
 - [Admin profile](sections/admin-profile.md)
 - [First owner and team](sections/team.md)
+
+## “No terminal” before the setup questions
+
+Older installers opened the SSH terminal as a seekable file. Version **0.1.6** fixes this. If setup stopped immediately after SHA256 verification with “Нет терминала”, run the downloader again without pinning the old version. Normal interactive setup does not require an `install.json` file; the database and owner account had not yet been created at that stage.
+
+For an SSH command launched without a terminal, open an interactive session with `ssh -t root@SERVER_IP` or use the unattended `--config` option described above.
