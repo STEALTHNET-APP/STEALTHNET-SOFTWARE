@@ -701,6 +701,7 @@ Object.assign(DICT, {
   "Версия и обновления": "Version and updates",
   "Проверяем версию…": "Checking version…",
   "Проверить снова": "Check again",
+  "GitHub проверялся менее минуты назад. Повторите чуть позже.": "GitHub was checked less than a minute ago. Try again shortly.",
   "Команда обновления скопирована": "Update command copied",
   "Не удалось проверить версию": "Unable to check version",
   "Содержимое на английском · EN": "English content · EN",

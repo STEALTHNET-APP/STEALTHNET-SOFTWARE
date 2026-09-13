@@ -1,5 +1,7 @@
 [All guides](README.md) · [Русский](../ru/releases.md) / [English](../en/releases.md)
 
+Automatic update checks cache the result for 15 minutes. “Check again” requests the latest release from GitHub, bypassing that cache. Repeated clicks within one minute reuse the fresh result and show an explanation. The SSH update command works independently of the interface cache.
+
 # Build and publish a release
 
 The repository is STEALTHNET-APP/STEALTHNET-SOFTWARE. The public installer selects the latest published stable GitHub Release unless the operator specifies a tag.
@@ -41,7 +43,7 @@ The `.sha256` sidecar contains the hash alone. `SHA256SUMS` is the multi-file fo
 ```bash
 make test-release
 cargo test --locked --workspace --lib --bins
-python3 deploy/package-release.py --version v0.2.0 --builds /path/to/builds --output /path/to/dist
+python3 deploy/package-release.py --version v0.2.1 --builds /path/to/builds --output /path/to/dist
 ```
 
 Each architecture directory must contain all seven real Linux binaries. Pin action commits, protect the main branch/tags, require checks and use 2FA for maintainers. Keep write permissions restricted to the release job. See [installation test coverage](../compatibility.md) for what has actually been exercised.

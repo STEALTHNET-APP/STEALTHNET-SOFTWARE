@@ -13,11 +13,11 @@ const PanelRelease = (() => {
     b.title='Версия панели'+(state?' · '+(labels[state.status]||'Не удалось проверить GitHub'):'');
     b.setAttribute('aria-label',b.title);b.onclick=open;
   }
-  async function check(){
+  async function check(force=false){
     if(pending)return pending;
-    if(state&&Date.now()<nextCheck){badge();return state;}
-    pending=API.call('/api/system/release').then(data=>{
-      state=data;nextCheck=Date.now()+Math.max(60,Math.min(Number(data.check_interval_seconds)||900,900))*1000;badge();return state;
+    if(!force&&state&&Date.now()<nextCheck){badge();return state;}
+    pending=API.call('/api/system/release'+(force?'?force=true':'')).then(data=>{
+      state=data;nextCheck=Date.now()+Math.max(1,Math.min(Number(data.check_interval_seconds)||900,900))*1000;badge();return state;
     }).finally(()=>{pending=null;});
     return pending;
   }
@@ -41,13 +41,13 @@ const PanelRelease = (() => {
       footer:'<button class="btn" data-release-refresh>Проверить снова</button><div class="spacer"></div><button class="btn" data-close>Закрыть</button>',
       onMount(layer){
         const box=layer.querySelector('.release-panel'),refresh=layer.querySelector('[data-release-refresh]');
-        async function render(){
+        async function render(force=false){
           refresh.disabled=true;
-          try{const data=await check();if(!layer.isConnected)return;box.innerHTML=content(data);box.querySelector('[data-copy-update]').onclick=()=>copyText('cd /opt/stealthnet-software && make update','Команда обновления скопирована');}
+          try{const data=await check(force);if(!layer.isConnected)return;if(force&&data.cached)toast('GitHub проверялся менее минуты назад. Повторите чуть позже.');box.innerHTML=content(data);box.querySelector('[data-copy-update]').onclick=()=>copyText('cd /opt/stealthnet-software && make update','Команда обновления скопирована');}
           catch(error){if(layer.isConnected)box.innerHTML=`<div class="empty"><b>Не удалось проверить версию</b><span>${esc(error.message)}</span></div>`;}
           finally{if(layer.isConnected)refresh.disabled=false;}
         }
-        refresh.onclick=()=>{nextCheck=0;render();};render();
+        refresh.onclick=()=>render(true);render();
       }});
   }
   function mount(){badge();check().catch(()=>{});}

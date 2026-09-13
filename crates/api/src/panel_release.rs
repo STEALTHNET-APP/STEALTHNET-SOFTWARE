@@ -1,11 +1,18 @@
 //! Fixed-origin, bounded GitHub release check. Never executes an update from HTTP.
 use crate::state::CurrentAdmin;
-use axum::Json;
+use axum::{extract::Query, Json};
+use serde::Deserialize;
 use serde_json::{json, Value};
 use std::{sync::OnceLock, time::{Duration, Instant}};
 
+const MANUAL_CHECK_INTERVAL: u64 = 60;
+type ReleaseCache = tokio::sync::Mutex<Option<(Instant, Value)>>;
+
+#[derive(Default, Deserialize)]
+pub struct CheckQuery { #[serde(default)] force: bool }
+
 const REPO: &str = "https://github.com/STEALTHNET-APP/STEALTHNET-SOFTWARE";
-static CACHE: OnceLock<tokio::sync::Mutex<Option<(Instant, Value)>>> = OnceLock::new();
+static CACHE: OnceLock<ReleaseCache> = OnceLock::new();
 
 fn installed_version() -> &'static str { env!("CARGO_PKG_VERSION") }
 fn metadata() -> Value {
@@ -37,7 +44,7 @@ async fn fetch_release() -> Result<Value, ()> {
         .redirect(reqwest::redirect::Policy::none()).user_agent("STEALTHNET-panel-release-check")
         .build().map_err(|_| ())?;
     let mut response = client.get("https://api.github.com/repos/STEALTHNET-APP/STEALTHNET-SOFTWARE/releases/latest")
-        .header("Accept","application/vnd.github+json").send().await.map_err(|_| ())?;
+        .header("Accept","application/vnd.github+json").header("Cache-Control", "no-cache").send().await.map_err(|_| ())?;
     if response.status()==reqwest::StatusCode::NOT_FOUND { return Ok(json!({"status":"no_releases"})); }
     if !response.status().is_success() { return Err(()); }
     let mut body=Vec::new();
@@ -47,18 +54,41 @@ async fn fetch_release() -> Result<Value, ()> {
     }
     parse_release(&serde_json::from_slice::<Value>(&body).map_err(|_| ())?, installed_version())
 }
-pub async fn check(_admin: CurrentAdmin) -> Json<Value> {
-    let mut cache=CACHE.get_or_init(||tokio::sync::Mutex::new(None)).lock().await;
-    if let Some((at,value))=&*cache {
-        let ttl=if value["status"]=="unavailable" {60} else {900};
-        if at.elapsed()<Duration::from_secs(ttl) { let mut out=value.clone();out["cached"]=json!(true);return Json(out); }
-    }
-    let mut out=fetch_release().await.unwrap_or_else(|_|json!({"status":"unavailable"}));
-    out["installed"]=metadata(); out["repository"]=json!(REPO);
-    out["checked_at"]=json!(chrono::Utc::now().to_rfc3339()); out["cached"]=json!(false);
-    out["check_interval_seconds"]=json!(if out["status"]=="unavailable" {60} else {900});
-    *cache=Some((Instant::now(),out.clone()));Json(out)
+fn cache_interval(value: &Value) -> u64 {
+    if value["status"] == "unavailable" { 60 } else { 900 }
 }
+
+async fn check_cached(
+    cache: &ReleaseCache,
+    force: bool,
+    fetch: impl std::future::Future<Output = Result<Value, ()>>,
+) -> Value {
+    // Serialize checks so multiple admins cannot trigger duplicate GitHub requests.
+    let mut cache = cache.lock().await;
+    if let Some((at, value)) = &*cache {
+        let age = at.elapsed().as_secs();
+        let ttl = cache_interval(value);
+        if age < if force { MANUAL_CHECK_INTERVAL } else { ttl } {
+            let mut out = value.clone();
+            out["cached"] = json!(true);
+            out["check_interval_seconds"] = json!(ttl.saturating_sub(age));
+            return out;
+        }
+    }
+    let mut out = fetch.await.unwrap_or_else(|_| json!({"status":"unavailable"}));
+    out["installed"] = metadata();
+    out["repository"] = json!(REPO);
+    out["checked_at"] = json!(chrono::Utc::now().to_rfc3339());
+    out["cached"] = json!(false);
+    out["check_interval_seconds"] = json!(cache_interval(&out));
+    *cache = Some((Instant::now(), out.clone()));
+    out
+}
+
+pub async fn check(_admin: CurrentAdmin, Query(query): Query<CheckQuery>) -> Json<Value> {
+    Json(check_cached(CACHE.get_or_init(|| tokio::sync::Mutex::new(None)), query.force, fetch_release()).await)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -78,4 +108,32 @@ mod tests {
         assert!(parse_release(&release("v0.2.0-rc.1"),"0.1.1").is_err());
         assert!(parse_release(&release("v0.2.0/../../bad"),"0.1.1").is_err());
     }
+    #[tokio::test]
+    async fn manual_check_discovers_a_release_before_automatic_cache_expires() {
+        let old = json!({"status":"current", "checked_at":"old"});
+        let cache = ReleaseCache::new(Some((Instant::now() - Duration::from_secs(120), old)));
+        let automatic = check_cached(&cache, false, async { panic!("automatic cache must avoid network") }).await;
+        assert_eq!(automatic["status"], "current");
+        assert_eq!(automatic["cached"], true);
+        assert!(automatic["check_interval_seconds"].as_u64().unwrap() <= 780);
+        let manual = check_cached(&cache, true, async { Ok(json!({"status":"update_available"})) }).await;
+        assert_eq!(manual["status"], "update_available");
+        assert_eq!(manual["cached"], false);
+        assert_ne!(manual["checked_at"], "old");
+        let repeated = check_cached(&cache, true, async { panic!("rapid clicks must reuse the fresh result") }).await;
+        assert_eq!(repeated["status"], "update_available");
+        assert_eq!(repeated["cached"], true);
+    }
+    #[tokio::test]
+    async fn expired_cache_and_failed_request_do_not_report_old_success() {
+        let cache = ReleaseCache::new(Some((Instant::now() - Duration::from_secs(901), json!({"status":"current"}))));
+        let failed = check_cached(&cache, false, async { Err(()) }).await;
+        assert_eq!(failed["status"], "unavailable");
+        assert_eq!(failed["check_interval_seconds"], 60);
+        *cache.lock().await = Some((Instant::now() - Duration::from_secs(61), failed));
+        let recovered = check_cached(&cache, false, async { Ok(json!({"status":"update_available"})) }).await;
+        assert_eq!(recovered["status"], "update_available");
+        assert_eq!(recovered["cached"], false);
+    }
+
 }
