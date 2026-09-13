@@ -64,8 +64,9 @@ class TerminalTests(unittest.TestCase):
 
     def test_complete_wizard_works_with_terminal_and_redirected_stdin(self):
         password = 'A-test-only-password-123'
-        prompts = [('Домен панели: ', 'panel.example.com'),
-                   ('Домен подписок: ', 'sub.example.com'),
+        prompts = [('Где разместить подписку [1]: ', ''),
+                   ('Домен панели: ', 'panel.example.com'),
+                   ('Домен подписки: ', 'sub.example.com'),
                    ('Название вашего сервиса: ', 'Тестовый VPN'),
                    ('Валюта проекта [USD]: ', ''),
                    ('Логин владельца [admin]: ', ''),
@@ -75,12 +76,39 @@ class TerminalTests(unittest.TestCase):
         def child():
             config = I.wizard()
             assert config['panel_domain'] == 'panel.example.com'
+            assert config['subscription_placement'] == 'local'
             assert config['brand'] == 'Тестовый VPN'
             assert config['admin_password'] == password
         for redirected in (False, True):
             with self.subTest(redirected=redirected):
                 output = self.drive(child, prompts, redirected)
                 self.assertNotIn(password, output)
+
+    def test_remote_wizard_explains_fields_and_retries_invalid_input(self):
+        prompts = [('Где разместить подписку [1]: ', '3'),
+                   ('Где разместить подписку [1]: ', '2'),
+                   ('Домен панели: ', 'https://panel.example.com/s/ID'),
+                   ('Домен панели: ', 'https://Panel.Example.com/'),
+                   ('Домен подписки: ', 'panel.example.com'),
+                   ('Домен подписки: ', 'https://sub.example.com/'),
+                   ('Название вашего сервиса: ', 'Test VPN'),
+                   ('Валюта проекта [USD]: ', '$10'),
+                   ('Валюта проекта [USD]: ', 'uah'),
+                   ('Логин владельца [admin]: ', ''),
+                   ('Пароль владельца (Enter — создать надёжный): ', ''),
+                   ('Токен Telegram-бота (Enter — настроить позже): ', '')]
+        def child():
+            config = I.wizard()
+            assert config['subscription_placement'] == 'remote'
+            assert config['panel_domain'] == 'panel.example.com'
+            assert config['sub_domain'] == 'sub.example.com'
+            assert config['currency'] == 'UAH'
+            assert len(config['admin_password']) >= 12
+        output = self.drive(child, prompts, redirected_stdin=True)
+        self.assertIn('IP ОТДЕЛЬНОГО сервера', output)
+        self.assertIn('DNS и HTTPS настроите на втором сервере позже', output)
+        self.assertIn('UAH — гривна', output)
+        self.assertIn('Попробуйте ещё раз', output)
 
     def test_shared_terminal_supports_password_recovery_prompts(self):
         password = 'Another-test-only-password'

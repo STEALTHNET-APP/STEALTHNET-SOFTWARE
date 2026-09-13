@@ -146,5 +146,14 @@ class CaddyRoutesTests(unittest.TestCase):
             with urllib.request.urlopen(self.url+'/app') as response:
                 self.assertEqual(response.read(),(self.web/'miniapp-unavailable.html').read_bytes())
 
+    def test_remote_subscription_has_no_local_proxy_site(self):
+        self.config['subscription_placement']='remote'
+        with patch.object(I,'ROOT',self.root):
+            self.snippet.write_text(I.caddy_config(self.config))
+        # A remote subscription must not appear among Caddy's managed hosts.
+        adapted=subprocess.check_output([self.caddy,'adapt','--config',str(self.main),'--adapter','caddyfile'],text=True)
+        self.assertNotIn('127.0.0.1:8081',adapted)
+        with self.server(): self.assert_routes()
+
 
 if __name__=='__main__': unittest.main()

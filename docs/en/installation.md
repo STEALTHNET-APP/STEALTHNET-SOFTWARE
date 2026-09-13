@@ -2,7 +2,7 @@
 
 # Install on a clean server
 
-The installer downloads prebuilt GitHub release files, installs PostgreSQL, Caddy and the panel services, and creates the owner account. Rust, Git, Node.js and Docker are not required on the customer server.
+The installer downloads prebuilt GitHub release files, installs PostgreSQL, Caddy and the selected local services, and creates the owner account. Rust, Git, Node.js and Docker are not required on the customer server.
 
 The commands below install a published stable release from STEALTHNET-APP/STEALTHNET-SOFTWARE. Without `--version`, the downloader selects the latest stable release automatically. Draft releases are not available to customers.
 
@@ -13,21 +13,41 @@ SSH into a clean Debian/Ubuntu server **as root**, then run:
 ```bash
 apt-get update
 apt-get install -y git curl ca-certificates
-git clone --branch v0.1.7 --depth 1 https://github.com/STEALTHNET-APP/STEALTHNET-SOFTWARE.git /root/stealthnet-installer
+git clone --branch v0.1.8 --depth 1 https://github.com/STEALTHNET-APP/STEALTHNET-SOFTWARE.git /root/stealthnet-installer
 cd /root/stealthnet-installer
-bash install.sh --version v0.1.7
+bash install.sh --version v0.1.8
 ```
 
 The wizard asks for panel/subscription domains, service name, currency and owner credentials. It downloads the release for your server architecture, verifies SHA256, and installs PostgreSQL, system services and HTTPS. You do not need to compile Rust.
 
 The repository is cloned into `/root/stealthnet-installer`; the running panel is installed in `/opt/stealthnet-software`. Use `make update` from that installation directory for subsequent panel updates.
 
+## Hosting choice and field hints
+
+The wizard starts with **1 — on this server** or **2 — on a separate server**.
+
+- **On this server:** both domains point to the panel server. Setup installs `sn-sub`, configures its HTTPS and verifies readiness.
+- **Separate server:** only the panel domain points to this server. The subscription domain is saved for customer links; its DNS can be configured later on the second server. Setup does not install local `sn-sub`, add its Caddy site or wait for the remote subscription to become ready.
+
+| Field | Example and meaning |
+|---|---|
+| Panel domain | `panel.example.com` — administrator login; A/AAAA point to the panel server |
+| Subscription domain | `sub.example.com` — customer connection address; a different domain pointing to the selected subscription server, without `/s/ID` |
+| Service name | `My VPN` — the name customers see |
+| Currency | `USD`, `EUR`, `RUB`, `UAH` — a three-letter code for prices and balances, not an amount or `$` symbol. Configure Stars separately |
+
+An origin such as `https://panel.example.com/` is accepted and normalized to its domain. Paths, ports, query parameters and credentials are rejected. Invalid domains or currencies are requested again without restarting the wizard.
+
+For a separate server, finish panel setup, then open **Settings → Subscription service → Installation → Separate server**. Issue a service key and run the command on the second machine. Configure its DNS/HTTPS and check `/ready` plus a real customer link. The remote subscription is not ready until these steps are complete. See [the full guide](subscription-installation.md).
+
+The choice is saved in `installation.json`. Panel updates and `stealthnet doctor` only check locally managed services; update the separate subscription on its own server. Existing installations without this field keep their previous local subscription behavior.
+
 ## Requirements
 
 - Debian 12/13 or Ubuntu 22.04/24.04/26.04 LTS with systemd; amd64 or arm64.
 - Recommended: 2 vCPU, 2 GB RAM and 10 GB free disk. The installer rejects less than 1 GB RAM or 3 GB free disk.
 - Root SSH access to a clean server. Existing databases and installations are not silently replaced.
-- Separate panel and subscription domains, for example panel.example.com and sub.example.com. Point A records at the server; any AAAA records must also point at a working address on this server.
+- Separate panel and subscription domains, for example panel.example.com and sub.example.com. Point A/AAAA records at the server hosting each service. For a separate subscription, its DNS can be configured after panel setup.
 - Allow TCP 80/443 in the hosting firewall and preserve SSH access. PostgreSQL and application ports remain on loopback. Active UFW receives only the required HTTP/HTTPS rules.
 
 The customer website/Mini App and VPN nodes are installed separately from the admin panel after this setup.
@@ -49,7 +69,7 @@ The downloader selects the architecture and stable tag, verifies the HTTPS archi
 
 Caddy comes from the signed official stable repository when no executable is installed. Other Caddy sites are retained through an imported configuration file. An unrelated server occupying the required ports is not stopped automatically.
 
-Success requires a working database, API, subscription readiness, systemd services and both public HTTPS domains with valid certificates. Owner credentials are written to `/root/stealthnet-access.txt` with permissions 600. Move them into a password manager, then remove that file.
+Success requires a working database, API, locally managed systemd services and the panel HTTPS domain with a valid certificate. Local placement also checks subscription readiness and its HTTPS domain. Separate subscription setup is completed and verified on the second server. Owner credentials are written to `/root/stealthnet-access.txt` with permissions 600. Move them into a password manager, then remove that file.
 
 ## Manage the installation
 
@@ -76,7 +96,7 @@ make update
 Or run `stealthnet update` from any directory. To select a particular **published** tag:
 
 ```bash
-make update VERSION=v0.1.7
+make update VERSION=v0.1.8
 ```
 
 The example pins the published release used in this guide. `make update` without a version selects the latest stable release. The updater downloads and verifies files, saves a PostgreSQL dump and configuration, applies migrations, atomically switches `current`, restarts panel services and checks readiness. Nodes/Xray, a separate subscription service and the customer website have their own update procedures.
@@ -93,7 +113,7 @@ Releases before **0.1.7** could match `/app.css` with Caddy's `/app*` route and 
 
 ```bash
 cd /opt/stealthnet-software
-make update VERSION=v0.1.7
+make update VERSION=v0.1.8
 ```
 
 The update creates a backup and repairs the legacy rule in installer-managed configuration while preserving other settings. Afterwards, reload the browser without cached content (`Ctrl+F5` / `Cmd+Shift+R`). For a custom reverse proxy, match `/app` and `/app/*` without intercepting `/app.css`. New installations and updates check the main CSS and JavaScript content types and contents before reporting success. The login page displays the API version without a staging label.
@@ -124,7 +144,7 @@ curl --connect-timeout 5 --max-time 10 -sS http://127.0.0.1:8080/api/health
 journalctl -u caddy -n 50 --no-pager
 ```
 
-Compare DNS records for **both domains** with the server's public IP in the hosting dashboard. An AAAA record requires working IPv6. Check TCP 80/443 in both the server firewall and the provider's network rules; application ports 8080/8081 should stay private.
+Compare the panel DNS with its server IP. With local placement, the subscription domain must point there too. With separate placement, verify subscription DNS on its own server. An AAAA record requires working IPv6. Check TCP 80/443 in both the server firewall and the provider's network rules; application ports 8080/8081 should stay private.
 
 - `Connection refused`: no accessible listener at the selected IP and port, or a firewall actively rejects the connection. Check the address, Caddy status and listening ports.
 - `Timeout`: check the address, routing and dropped traffic.
@@ -135,14 +155,14 @@ After fixing the cause, **repeat the installation command for the same version**
 
 ## Existing reverse proxy and unattended setup
 
-Use a root-owned JSON file with permissions 600. Required fields: `panel_domain`, `sub_domain`, `brand`, `currency`, `admin_user`, `admin_password`. Optional: `bot_token` and `proxy` (`caddy` or `external`). Password length: 12–128 characters.
+Use a root-owned JSON file with permissions 600. Required fields: `panel_domain`, `sub_domain`, `brand`, `currency`, `admin_user`, `admin_password`. Optional: `bot_token`, `proxy` (`caddy` or `external`) and `subscription_placement` (`local` by default or `remote`). The subscription domain is required in both modes, but remote mode accepts a future domain without DNS yet. Proxy management and subscription placement are independent choices. Password length: 12–128 characters.
 
 ```bash
 chmod 600 /root/install.json
 bash /root/stealthnet-install.sh --config /root/install.json
 ```
 
-With `proxy: "external"`, the installer leaves your proxy/firewall alone, checks local services and writes `/opt/stealthnet-software/Caddyfile.example`. You configure and verify public HTTPS. Serve `current/web`, proxy `/api/*` to `127.0.0.1:8080` and the subscription domain to `127.0.0.1:8081`. The panel’s `/app` and `/app/*` paths must serve the Mini App unavailable page. Use the generated Caddy example for the complete path and header rules.
+With `proxy: "external"`, the installer leaves your proxy/firewall alone, checks local services and writes `/opt/stealthnet-software/Caddyfile.example`. You configure and verify public HTTPS. Serve `current/web`, proxy `/api/*` to `127.0.0.1:8080` and, for local subscription placement only, the subscription domain to `127.0.0.1:8081`. The panel’s `/app` and `/app/*` paths must serve the Mini App unavailable page. Use the generated Caddy example for the complete path and header rules.
 
 If GitHub is inaccessible, transfer the published archive and checksum over a trusted channel, verify the external SHA256, safely extract it and run `python3 <release>/deploy/installer.py install --release-dir <release> --config /root/install.json`. The installer also verifies its internal manifest.
 

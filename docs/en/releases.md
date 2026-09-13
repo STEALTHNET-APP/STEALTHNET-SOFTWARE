@@ -41,7 +41,7 @@ The `.sha256` sidecar contains the hash alone. `SHA256SUMS` is the multi-file fo
 ```bash
 make test-release
 cargo test --locked --workspace --lib --bins
-python3 deploy/package-release.py --version v0.1.7 --builds /path/to/builds --output /path/to/dist
+python3 deploy/package-release.py --version v0.1.8 --builds /path/to/builds --output /path/to/dist
 ```
 
 Each architecture directory must contain all seven real Linux binaries. Pin action commits, protect the main branch/tags, require checks and use 2FA for maintainers. Keep write permissions restricted to the release job. See [installation test coverage](../compatibility.md) for what has actually been exercised.

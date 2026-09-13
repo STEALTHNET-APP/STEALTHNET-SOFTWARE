@@ -32,7 +32,7 @@ class InstallerTests(unittest.TestCase):
                     result=subprocess.run(['bash','-c',command,'installer',*args],text=True,capture_output=True,check=True)
                     self.assertEqual(result.stdout,expected)
     def test_domains_and_config_injection(self):
-        for value in ('x\nroot * /','example.com:443','https://example.com','a..com','-a.example.com','a.example.com/','a.example.com"','127.0.0.1'):
+        for value in ('x\nroot * /','example.com:443','https://example.com/s/ID','https://owner:secret@example.com','https://example.com?token=private','a..com','-a.example.com','a.example.com"','127.0.0.1'):
             with self.subTest(value=value),self.assertRaises(I.InstallError):I.validate_config({**self.c,'panel_domain':value})
         self.assertEqual(I.validate_config(self.c)['brand'],self.c['brand'])
         with self.assertRaises(I.InstallError):I.validate_config({**self.c,'sub_domain':self.c['panel_domain']})

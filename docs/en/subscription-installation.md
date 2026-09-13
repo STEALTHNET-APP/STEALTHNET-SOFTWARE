@@ -9,7 +9,7 @@
 | | With the panel | Separate server |
 |---|---|---|
 | Data source | Local PostgreSQL, `SUB_MODE=db` | Panel HTTPS API, `SUB_MODE=api` |
-| Installation | Included in panel setup | Settings → Subscription service |
+| Installation | Select “On this server” during panel setup | Settings → Subscription service |
 | Service key | Not required | Required |
 | Database exposure | Local only | No database credentials or open database port |
 
@@ -17,7 +17,7 @@ Use different domains for panel, subscription service and customer website. Conf
 
 ## On the panel server
 
-The panel installer already installs `sn-sub`. Do not run the separate-server installer over it.
+When “On this server” was selected, the panel installer already installs `sn-sub`. Do not run the separate-server installer over it.
 
 ```bash
 systemctl status sn-sub --no-pager
@@ -30,6 +30,8 @@ Expect `{"status":"ready"}`. Its systemd environment uses the panel’s `.env`: 
 For an existing Compose deployment, use `docker compose up -d sub` and the in-container readiness check. Caddy in the same network connects to `sub:8081`, not its own `127.0.0.1`.
 
 ## On a separate server
+
+During new panel setup, select “On a separate server” and enter the future subscription domain. Point its DNS at the second server when ready; panel setup does not check that domain or install a local subscription service.
 
 1. Prepare Debian/Ubuntu, systemd, root SSH and amd64/arm64. Permit outbound HTTPS to the panel.
 2. Save the public domains in the panel. Issue and securely retain the service key. Viewing instructions does not require rotating an existing working key.

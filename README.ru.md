@@ -14,10 +14,10 @@
 
 **STEALTHNET** — платформа для своего VPN-сервиса: инфраструктура, подписки, продажи и клиентские аккаунты в одной системе. Rust и PostgreSQL, независимые службы, интерфейсы на русском и английском.
 
-**v0.1.7 · исправление стилей панели, обновление и диагностика установки.**
+**v0.1.8 · мастер с подсказками и выбором сервера подписки.**
 
 <p>
-  <a href="https://github.com/STEALTHNET-APP/STEALTHNET-SOFTWARE/releases/tag/v0.1.7"><img src="docs/media/navigation/link-ru-02.svg" width="206" height="58" alt="Скачать v0.1.7" /></a>
+  <a href="https://github.com/STEALTHNET-APP/STEALTHNET-SOFTWARE/releases/tag/v0.1.8"><img src="docs/media/navigation/link-ru-02.svg" width="206" height="58" alt="Скачать v0.1.8" /></a>
   <a href="docs/compatibility.md"><img src="docs/media/navigation/link-ru-03.svg" width="247" height="58" alt="Проверенные системы" /></a>
 </p>
 
@@ -77,12 +77,12 @@
 ```bash
 apt-get update
 apt-get install -y git curl ca-certificates
-git clone --branch v0.1.7 --depth 1 https://github.com/STEALTHNET-APP/STEALTHNET-SOFTWARE.git /root/stealthnet-installer
+git clone --branch v0.1.8 --depth 1 https://github.com/STEALTHNET-APP/STEALTHNET-SOFTWARE.git /root/stealthnet-installer
 cd /root/stealthnet-installer
-bash install.sh --version v0.1.7
+bash install.sh --version v0.1.8
 ```
 
-Откроется мастер: укажите домены панели и подписки, название сервиса, валюту и данные владельца. Установщик сам скачает готовый релиз для архитектуры сервера, проверит SHA256 и установит PostgreSQL, системные службы и HTTPS. Компилировать Rust не требуется.
+Мастер объясняет каждое поле и сначала предлагает разместить подписку вместе с панелью или на отдельном сервере. Во втором варианте установка подписки продолжается из панели на другой машине. Установщик сам скачает готовый релиз для архитектуры сервера, проверит SHA256 и установит PostgreSQL, системные службы и HTTPS. Компилировать Rust не требуется.
 
 Репозиторий загрузится в `/root/stealthnet-installer`, а рабочая панель установится в `/opt/stealthnet-software`. Обновлять установленную панель затем нужно командой `make update` из её рабочего каталога.
 

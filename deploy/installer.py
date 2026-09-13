@@ -113,22 +113,45 @@ def private_json(path):
     if not isinstance(value, dict): raise InstallError('Ожидается объект JSON.')
     return value
 
+def domain_name(value):
+    value = re.sub(r'^https?://', '', value.strip().lower()).removesuffix('/')
+    if not DOMAIN.fullmatch(value):
+        raise InstallError('Нужен домен, например panel.example.com: без порта, /s/ID, других путей и параметров.')
+    return value
+
+def project_currency(value):
+    value = value.strip().upper()
+    if not re.fullmatch('[A-Z]{3}', value) or value == 'XTR':
+        raise InstallError('Введите трёхбуквенный код валюты: USD, EUR, RUB или UAH. Не знак валюты и не сумму. Stars включаются отдельно в панели.')
+    return value
+
+def local_subscription(c):
+    # Configurations written before this choice existed always installed sn-sub.
+    placement = c.get('subscription_placement', 'local')
+    if placement not in ('local', 'remote'):
+        raise InstallError('subscription_placement: local (сервер панели) или remote (отдельный сервер).')
+    return placement == 'local'
+
+def managed_services(c):
+    return tuple(s for s in SERVICES if s != 'sub' or local_subscription(c))
+
 def validate_config(c):
-    allowed = {'panel_domain','sub_domain','brand','currency','admin_user','admin_password','bot_token','proxy'}
+    allowed = {'panel_domain','sub_domain','brand','currency','admin_user','admin_password','bot_token','proxy','subscription_placement'}
     if set(c)-allowed: raise InstallError('Неизвестные параметры: '+', '.join(sorted(set(c)-allowed)))
     c = dict(c)
     c.setdefault('proxy','caddy'); c.setdefault('bot_token',''); c.setdefault('admin_user','admin')
+    c.setdefault('subscription_placement', 'local')
     for key in allowed:
         if key not in c or not isinstance(c[key],str): raise InstallError('Не задан параметр: '+key)
         if any(ord(ch)<32 or ord(ch)==127 for ch in c[key]): raise InstallError('Недопустимые символы: '+key)
     for key in ('panel_domain','sub_domain'):
-        c[key] = c[key].lower()
-        if not DOMAIN.fullmatch(c[key]): raise InstallError('Укажите домен без https://, порта и пути: '+key)
+        c[key] = domain_name(c[key])
+    local_subscription(c)
     if c['panel_domain']==c['sub_domain']: raise InstallError('Для панели и подписок нужны разные домены.')
     if not 1<=len(c['brand'])<=80: raise InstallError('Название сервиса: от 1 до 80 символов.')
     if not re.fullmatch('[a-zA-Z0-9_.@-]{3,64}',c['admin_user']): raise InstallError('Логин: 3–64 латинских символа, цифры, . _ @ -')
     if not 12<=len(c['admin_password'])<=128: raise InstallError('Пароль владельца: 12–128 символов.')
-    if not re.fullmatch('[A-Z]{3}',c['currency']) or c['currency']=='XTR': raise InstallError('Укажите основную валюту проекта (например USD, RUB или EUR). Stars включаются отдельно в админке.')
+    c['currency'] = project_currency(c['currency'])
     if c['bot_token'] and not re.fullmatch(r'[0-9]{5,15}:[A-Za-z0-9_-]{20,100}',c['bot_token']): raise InstallError('Некорректный токен Telegram-бота.')
     if c['proxy'] not in ('caddy','external'): raise InstallError('proxy: caddy или external')
     return c
@@ -144,16 +167,41 @@ def terminal():
 
 def wizard():
     with terminal() as tty:
-        def ask(label, default=''):
-            tty.write(f'  {label}'+(f' [{default}]' if default else '')+': '); tty.flush()
-            line = tty.readline()
-            if not line: raise InstallError('Ввод прерван.')
-            return line.strip() or default
+        def ask(label, default='', *, hint='', validate=None):
+            if hint: tty.write('  '+hint+'\n')
+            while True:
+                tty.write(f'  {label}'+(f' [{default}]' if default else '')+': '); tty.flush()
+                line = tty.readline()
+                if not line: raise InstallError('Ввод прерван.')
+                value = line.strip() or default
+                try: return validate(value) if validate else value
+                except InstallError as error:
+                    tty.write('  '+str(error)+' Попробуйте ещё раз.\n')
+        def placement(value):
+            if value not in ('1', '2'): raise InstallError('Выберите 1 или 2.')
+            return {'1':'local', '2':'remote'}[value]
         ui('\n  STEALTHNET  /  Новый сервер', '1;36')
-        ui('  Два домена должны указывать на IP этого сервера.\n', '90')
-        c = {'panel_domain':ask('Домен панели'), 'sub_domain':ask('Домен подписок'),
-             'brand':ask('Название вашего сервиса'), 'currency':ask('Валюта проекта','USD').upper(),
-             'admin_user':ask('Логин владельца','admin')}
+        mode = ask('Где разместить подписку', '1', validate=placement,
+                   hint='1 — на этом сервере вместе с панелью; 2 — на отдельном сервере.\n'
+                        '  Подписка — страница подключения и ссылка, которую клиент добавляет в VPN-приложение.')
+        panel = ask('Домен панели', validate=domain_name,
+                    hint='Например panel.example.com. Это адрес входа администратора.\n'
+                         '  DNS A/AAAA направьте на IP ЭТОГО сервера. Можно вставить https://panel.example.com.')
+        def subscription_domain(value):
+            value = domain_name(value)
+            if value == panel: raise InstallError('У подписки должен быть свой домен, например sub.example.com.')
+            return value
+        sub_hint = ('DNS A/AAAA направьте на IP ЭТОГО сервера.' if mode == 'local' else
+                    'DNS A/AAAA должны вести на IP ОТДЕЛЬНОГО сервера подписки.\n'
+                    '  Сейчас достаточно выбрать будущий домен: его DNS и HTTPS настроите на втором сервере позже.')
+        sub = ask('Домен подписки', validate=subscription_domain,
+                  hint='Например sub.example.com. Нужен домен, а не ссылка клиента /s/ID.\n  '+sub_hint)
+        c = {'subscription_placement':mode, 'panel_domain':panel, 'sub_domain':sub,
+             'brand':ask('Название вашего сервиса', hint='Например My VPN — это название увидят клиенты.'),
+             'currency':ask('Валюта проекта','USD', validate=project_currency,
+                            hint='Код валюты для цен и баланса: USD — доллар, EUR — евро, RUB — рубль, UAH — гривна.\n'
+                                 '  Введите код из трёх латинских букв, без суммы. Telegram Stars настраиваются отдельно.'),
+             'admin_user':ask('Логин владельца','admin', hint='Первый аккаунт с полными правами. Например admin; это не Telegram-имя.')}
         c['admin_password'] = getpass.getpass('  Пароль владельца (Enter — создать надёжный): ',stream=tty)
         if c['admin_password']:
             again = getpass.getpass('  Повторите пароль: ',stream=tty)
@@ -210,15 +258,15 @@ def port_free(port):
 
 def preflight(c, resume=False):
     if not resume:
-        for port in (8080,8081):
-            if not port_free(port): raise InstallError(f'Порт {port} занят. Установка требует свободные 8080 и 8081.')
+        for port in ((8080,8081) if local_subscription(c) else (8080,)):
+            if not port_free(port): raise InstallError(f'Порт {port} занят. Освободите его или выберите другой сервер для панели.')
         for svc in SERVICES:
             if Path(f'/etc/systemd/system/sn-{svc}.service').exists(): raise InstallError('Найдена существующая установка. Используйте её update.sh, не устанавливайте поверх.')
     if c['proxy']=='caddy':
         for port in (80,443):
             if not port_free(port) and subprocess.run(['systemctl','is-active','--quiet','caddy']).returncode:
                 raise InstallError(f'Порт {port} занят другим веб-сервером. Используйте документированный режим external или отдельный сервер.')
-        for key in ('panel_domain','sub_domain'):
+        for key in (('panel_domain','sub_domain') if local_subscription(c) else ('panel_domain',)):
             try: addresses=sorted({v[4][0] for v in socket.getaddrinfo(c[key],None)})
             except OSError: raise InstallError(f'Нет DNS-записи для {c[key]}. Настройте A/AAAA и повторите запуск.')
             ui('  DNS '+c[key]+' → '+', '.join(addresses), '90')
@@ -306,8 +354,9 @@ def seed(c, values):
     statement='\n'.join('INSERT INTO settings(key,value) VALUES ('+lit(k)+','+lit(json.dumps(v,ensure_ascii=False))+'::jsonb) ON CONFLICT(key) DO UPDATE SET value=EXCLUDED.value;' for k,v in settings.items())
     sql(statement,values)
 
-def units():
-    for svc in SERVICES:
+def units(c):
+    services = managed_services(c)
+    for svc in services:
         atomic(f'/etc/systemd/system/sn-{svc}.service',f'''[Unit]
 Description=STEALTHNET — {svc}
 After=network-online.target postgresql.service
@@ -344,8 +393,8 @@ WantedBy=multi-user.target
     atomic('/usr/local/bin/stealthnet',f'''#!/usr/bin/env bash
 set -euo pipefail
 case "${{1:-help}}" in
-  status) systemctl --no-pager --full status sn-api sn-sub sn-worker sn-bot;;
-  logs) case "${{2:-api}}" in api|sub|worker|bot) exec journalctl -u "sn-${{2:-api}}" -n 100 -f;; *) echo 'api | sub | worker | bot'; exit 2;; esac;;
+  status) systemctl --no-pager --full status {' '.join('sn-'+s for s in services)};;
+  logs) case "${{2:-api}}" in {'|'.join(services)}) exec journalctl -u "sn-${{2:-api}}" -n 100 -f;; *) echo '{' | '.join(services)}'; exit 2;; esac;;
   update) shift; exec bash {ROOT}/current/install.sh --update "$@";;
   doctor) exec python3 {ROOT}/current/deploy/installer.py doctor;;
   admin-password) exec python3 {ROOT}/current/deploy/installer.py admin-password;;
@@ -356,7 +405,7 @@ esac
     run(['systemctl','daemon-reload'])
 
 def caddy_config(c):
-    return f'''# Managed by STEALTHNET; other Caddy sites are left intact.
+    config = f'''# Managed by STEALTHNET; other Caddy sites are left intact.
 {c['panel_domain']} {{
     encode zstd gzip
     handle /api/* {{
@@ -387,6 +436,9 @@ def caddy_config(c):
         Content-Security-Policy "frame-ancestors 'none'; base-uri 'self'; object-src 'none'"
     }}
 }}
+'''
+    if local_subscription(c):
+        config += f'''
 {c['sub_domain']} {{
     encode zstd gzip
     reverse_proxy 127.0.0.1:8081
@@ -398,6 +450,7 @@ def caddy_config(c):
     }}
 }}
 '''
+    return config
 
 def configure_proxy(c):
     config=caddy_config(c)
@@ -499,16 +552,16 @@ def web_assets(base_url, directory):
                 'Также проверьте каталог статики и кэш reverse proxy.')
 
 def health(c, values, public=True):
-    for svc in SERVICES:
+    for svc in managed_services(c):
         if svc=='bot' and not values.get('BOT_TOKEN'): continue
         run(['systemctl','is-active','--quiet','sn-'+svc])
     json_request('http://127.0.0.1:8080/api/health',{'status':'ok','db':True})
-    json_request('http://127.0.0.1:8081/ready',{'status':'ready'})
+    if local_subscription(c): json_request('http://127.0.0.1:8081/ready',{'status':'ready'})
     if public and c['proxy']=='caddy':
         ui('  → Проверяем HTTPS и сертификаты (первый выпуск может занять минуту)…')
         try:
             json_request('https://'+c['panel_domain']+'/api/health',{'status':'ok','db':True},attempts=45)
-            json_request('https://'+c['sub_domain']+'/ready',{'status':'ready'},attempts=45)
+            if local_subscription(c): json_request('https://'+c['sub_domain']+'/ready',{'status':'ready'},attempts=45)
             url='https://'+c['panel_domain']+'/'
             try:
                 with urllib.request.urlopen(url,timeout=10) as response:
@@ -519,14 +572,16 @@ def health(c, values, public=True):
             web_assets('https://'+c['panel_domain'],ROOT/'current/web')
         except InstallError as error:
             raise InstallError(str(error)+'\n'
-                'Локальные службы, API и база прошли проверку. Ошибка относится к публичному адресу.\n'
-                'Сверьте A/AAAA обоих доменов с IP этого сервера. Для стандартной установки нужны TCP 80 и 443, '
+                'Локальные службы, API и база прошли проверку. Ошибка относится к публичному адресу.\n'+
+                ('Сверьте A/AAAA доменов панели и подписки с IP этого сервера. ' if local_subscription(c) else
+                 'Сверьте A/AAAA домена панели с IP этого сервера. Домен подписки относится к отдельному серверу. ')+
+                'Для стандартной установки нужны TCP 80 и 443, '
                 'включая firewall в кабинете хостинга.\n'
                 'Проверка Caddy: systemctl is-active caddy\n'
                 'Журнал Caddy: journalctl -u caddy -n 50 --no-pager') from None
 
-def restart(values):
-    enabled=['sn-'+s for s in SERVICES if s!='bot' or values.get('BOT_TOKEN')]
+def restart(values, c):
+    enabled=['sn-'+s for s in managed_services(c) if s!='bot' or values.get('BOT_TOKEN')]
     run(['systemctl','enable']+enabled)
     run(['systemctl','restart']+enabled)
 
@@ -579,7 +634,7 @@ def install(args, manifest):
         return dest
     dest=step('3/7','Готовим базу, настройки и аккаунт владельца',prepare)
     step('4/7','Подключаем готовый релиз',lambda:(public_storage(),switch(dest)))
-    step('5/7','Настраиваем и запускаем службы',lambda:(units(),restart(values)))
+    step('5/7','Настраиваем и запускаем службы',lambda:(units(c),restart(values,c)))
     step('6/7','Настраиваем HTTPS',lambda:configure_proxy(c))
     step('7/7','Проверяем работоспособность',lambda:health(c,values))
     safe={k:v for k,v in c.items() if k not in ('admin_password','bot_token')}
@@ -587,7 +642,13 @@ def install(args, manifest):
     atomic(ROOT/'installation.json',json.dumps(safe,ensure_ascii=False,indent=2)+'\n'); pending.unlink()
     ui('\n  ✓ STEALTHNET установлен · '+manifest['version'],'1;32')
     ui('  Панель: https://'+c['panel_domain'])
-    ui('  Подписки: https://'+c['sub_domain'])
+    if local_subscription(c):
+        ui('  Подписки: https://'+c['sub_domain'])
+    else:
+        ui('  Подписка на отдельном сервере ещё не установлена: https://'+c['sub_domain'],'33')
+        ui('  В панели: Настройки → Сервис подписки → выпустите ключ → Установка → На отдельном сервере.')
+        ui('  Выполните команду на втором сервере, затем настройте там DNS и HTTPS.')
+        ui('  Инструкция: https://'+c['panel_domain']+'/subscription-installation.html')
     ui('  Доступ владельца: /root/stealthnet-access.txt (только root)')
     if c['proxy']=='external': ui('  Внешний HTTPS ещё нужно настроить по Caddyfile.example. Проверены локальные службы.','33')
     if not values.get('BOT_TOKEN'): ui('  Telegram: добавьте токен командой stealthnet bot-token.','90')
@@ -608,11 +669,11 @@ def update(args, manifest):
     dest=step('1/4','Проверяем и сохраняем новый релиз',lambda:stage_release(args.release_dir,manifest))
     step('2/4','Сохраняем базу данных и настройки',lambda:backup(values,c))
     try:
-        step('3/4','Применяем миграции и переключаем службы',lambda:(run(['bash',dest/'deploy/migrate.sh'],env=db_env(values)),switch(dest),restart(values)))
+        step('3/4','Применяем миграции и переключаем службы',lambda:(run(['bash',dest/'deploy/migrate.sh'],env=db_env(values)),switch(dest),restart(values,c)))
         repair_proxy(c)
         step('4/4','Проверяем новую версию',lambda:health(c,values))
     except Exception:
-        switch(old); restart(values)
+        switch(old); restart(values,c)
         ui('  Выполнен возврат к прежним бинарникам. Применённые миграции остаются; резервная копия базы сохранена.','33')
         raise
     c['version']=manifest['version']; atomic(ROOT/'installation.json',json.dumps(c,ensure_ascii=False,indent=2)+'\n')
@@ -623,7 +684,9 @@ def maintenance(action):
     c=private_json(ROOT/'installation.json'); values=read_env(ROOT/'.env')
     if action=='doctor':
         validate_release(ROOT/'current'); health(c,values)
-        ui('  ✓ Релиз, PostgreSQL, API и подписки проверены.','32')
+        ui('  ✓ Релиз, PostgreSQL и API панели проверены.','32')
+        if local_subscription(c): ui('  ✓ Локальный сервис подписки проверен.','32')
+        else: ui('  Подписка размещается отдельно: её готовность проверьте на сервере подписки по инструкции в панели.','90')
         if c['proxy']=='external': ui('  Проверены локальные службы. Внешний HTTPS управляется отдельно.','33')
         return
     if action=='admin-password':
