@@ -70,6 +70,22 @@ Requirements, DNS, the setup wizard and HTTPS. Dedicated guides cover nodes, sub
   <a href="docs/en/cabinet-installation.md"><img src="docs/media/navigation/link-en-08.svg" width="239" height="58" alt="Website &amp; Mini App" /></a>
 </p>
 
+### Install from GitHub
+
+SSH into a clean Debian/Ubuntu server **as root**, then run:
+
+```bash
+apt-get update
+apt-get install -y git curl ca-certificates
+git clone --branch v0.1.0 --depth 1 https://github.com/STEALTHNET-APP/STEALTHNET-SOFTWARE.git /root/stealthnet-installer
+cd /root/stealthnet-installer
+bash install.sh --version v0.1.0
+```
+
+The wizard asks for panel/subscription domains, service name, currency and owner credentials. It downloads the release for your server architecture, verifies SHA256, and installs PostgreSQL, system services and HTTPS. You do not need to compile Rust.
+
+The repository is cloned into `/root/stealthnet-installer`; the running panel is installed in `/opt/stealthnet-software`. Use `make update` from that installation directory for subsequent panel updates.
+
 On an installed panel:
 
 ```bash

@@ -15,6 +15,22 @@
 
 Клиентский кабинет и Mini App устанавливаются из админки после запуска панели. До установки кабинета Mini App показывает страницу с объяснением, а не работает через панель напрямую. Ноды устанавливаются отдельно из раздела «Ноды».
 
+## Установка через GitHub
+
+На чистом Debian/Ubuntu войдите по SSH **как root** и выполните:
+
+```bash
+apt-get update
+apt-get install -y git curl ca-certificates
+git clone --branch v0.1.0 --depth 1 https://github.com/STEALTHNET-APP/STEALTHNET-SOFTWARE.git /root/stealthnet-installer
+cd /root/stealthnet-installer
+bash install.sh --version v0.1.0
+```
+
+Откроется мастер: укажите домены панели и подписки, название сервиса, валюту и данные владельца. Установщик сам скачает готовый релиз для архитектуры сервера, проверит SHA256 и установит PostgreSQL, системные службы и HTTPS. Компилировать Rust не требуется.
+
+Репозиторий загрузится в `/root/stealthnet-installer`, а рабочая панель установится в `/opt/stealthnet-software`. Обновлять установленную панель затем нужно командой `make update` из её рабочего каталога.
+
 ## Одна команда
 
 Войдите на сервер по SSH **как root** и выполните:

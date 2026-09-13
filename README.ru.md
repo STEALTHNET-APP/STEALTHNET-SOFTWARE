@@ -70,6 +70,22 @@
   <a href="docs/ru/cabinet-installation.md"><img src="docs/media/navigation/link-ru-08.svg" width="239" height="58" alt="Кабинет и Mini App" /></a>
 </p>
 
+### Установка через GitHub
+
+На чистом Debian/Ubuntu войдите по SSH **как root** и выполните:
+
+```bash
+apt-get update
+apt-get install -y git curl ca-certificates
+git clone --branch v0.1.0 --depth 1 https://github.com/STEALTHNET-APP/STEALTHNET-SOFTWARE.git /root/stealthnet-installer
+cd /root/stealthnet-installer
+bash install.sh --version v0.1.0
+```
+
+Откроется мастер: укажите домены панели и подписки, название сервиса, валюту и данные владельца. Установщик сам скачает готовый релиз для архитектуры сервера, проверит SHA256 и установит PostgreSQL, системные службы и HTTPS. Компилировать Rust не требуется.
+
+Репозиторий загрузится в `/root/stealthnet-installer`, а рабочая панель установится в `/opt/stealthnet-software`. Обновлять установленную панель затем нужно командой `make update` из её рабочего каталога.
+
 На установленной панели:
 
 ```bash

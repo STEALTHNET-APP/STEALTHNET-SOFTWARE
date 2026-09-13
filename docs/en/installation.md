@@ -6,6 +6,22 @@ The installer downloads prebuilt GitHub release files, installs PostgreSQL, Cadd
 
 > The public installation command requires published source code and a stable release in STEALTHNET-APP/STEALTHNET-SOFTWARE. The first public release is still pending. A draft release is not installable by customers.
 
+## Install from GitHub
+
+SSH into a clean Debian/Ubuntu server **as root**, then run:
+
+```bash
+apt-get update
+apt-get install -y git curl ca-certificates
+git clone --branch v0.1.0 --depth 1 https://github.com/STEALTHNET-APP/STEALTHNET-SOFTWARE.git /root/stealthnet-installer
+cd /root/stealthnet-installer
+bash install.sh --version v0.1.0
+```
+
+The wizard asks for panel/subscription domains, service name, currency and owner credentials. It downloads the release for your server architecture, verifies SHA256, and installs PostgreSQL, system services and HTTPS. You do not need to compile Rust.
+
+The repository is cloned into `/root/stealthnet-installer`; the running panel is installed in `/opt/stealthnet-software`. Use `make update` from that installation directory for subsequent panel updates.
+
 ## Requirements
 
 - Debian 12/13 or Ubuntu 22.04/24.04/26.04 LTS with systemd; amd64 or arm64.
