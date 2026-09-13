@@ -48,3 +48,14 @@ __pycache__/
 /web/uploads/
 /web/custom/
 node_modules/
+
+# Common ad-hoc exports and private credentials.
+*.sql
+!/db/migrations/*.sql
+!/db/seed.sql
+id_rsa*
+id_ed25519*
+*.p12
+*.pfx
+credentials.json
+secrets.json
