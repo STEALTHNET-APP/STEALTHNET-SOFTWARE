@@ -98,6 +98,28 @@ Inspect `/var/log/stealthnet/install-<timestamp>.log` and `journalctl -u sn-api 
 | Existing role/database | Existing installation or partial setup; its password is not automatically replaced |
 | APT locked | Wait for unattended upgrades; APT waits up to 180 seconds for its lock |
 
+### The final step stopped at HTTPS / `URLError`
+
+If the error follows the HTTPS and certificate check message, the local API, database and subscription service have already passed their checks. Older installers show only `URLError`: this is a general connection error, not proof of a certificate problem.
+
+Run on the server as root:
+
+```bash
+systemctl is-active caddy sn-api sn-sub
+ss -lntp | grep -E ':(80|443|8080|8081)\b'
+curl --connect-timeout 5 --max-time 10 -sS http://127.0.0.1:8080/api/health
+journalctl -u caddy -n 50 --no-pager
+```
+
+Compare DNS records for **both domains** with the server's public IP in the hosting dashboard. An AAAA record requires working IPv6. Check TCP 80/443 in both the server firewall and the provider's network rules; application ports 8080/8081 should stay private.
+
+- `Connection refused`: no accessible listener at the selected IP and port, or a firewall actively rejects the connection. Check the address, Caddy status and listening ports.
+- `Timeout`: check the address, routing and dropped traffic.
+- Certificate error: check Caddy logs, DNS, ACME port access and the server clock. Keep TLS verification enabled.
+- HTTP 502: the web server is accessible but cannot obtain a valid application response; check the local API and reverse proxy route.
+
+After fixing the cause, **repeat the installation command for the same version**. Setup stopped at step 7 is incomplete; `make update` cannot finish it. Keep `.env`, `.install-pending.json` and the database: the next installation run reuses them.
+
 ## Existing reverse proxy and unattended setup
 
 Use a root-owned JSON file with permissions 600. Required fields: `panel_domain`, `sub_domain`, `brand`, `currency`, `admin_user`, `admin_password`. Optional: `bot_token` and `proxy` (`caddy` or `external`). Password length: 12–128 characters.

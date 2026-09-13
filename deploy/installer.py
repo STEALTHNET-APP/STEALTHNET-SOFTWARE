@@ -14,11 +14,13 @@ import re
 import secrets
 import shutil
 import socket
+import ssl
 import stat
 import subprocess
 import sys
 import tempfile
 import time
+import urllib.error
 import urllib.request
 
 # Immutable release directories must not acquire Python bytecode on import.
@@ -422,16 +424,41 @@ def configure_proxy(c):
         else: atomic(snippet,old_snippet,0o644)
         raise
 
+def health_error(error):
+    # URL errors wrap the useful socket/TLS error. Do not print arbitrary
+    # server responses or exception text: either can contain credentials.
+    if isinstance(error, urllib.error.HTTPError):
+        error.close()
+        return f'сервер вернул HTTP {error.code}; проверьте маршрут reverse proxy и журнал службы'
+    reason=error.reason if isinstance(error, urllib.error.URLError) else error
+    if isinstance(reason, socket.gaierror):
+        return 'домен не разрешается в IP; проверьте DNS-записи A/AAAA и DNS на сервере'
+    if isinstance(reason, ConnectionRefusedError):
+        return 'соединение отклонено; проверьте IP в DNS, запущен ли веб-сервер и открыт ли порт'
+    if isinstance(reason, TimeoutError):
+        return 'истекло время ожидания; проверьте доступность адреса и firewall сервера и провайдера'
+    if isinstance(reason, ssl.SSLCertVerificationError):
+        return 'сертификат HTTPS не прошёл проверку; проверьте домен, срок сертификата и время на сервере'
+    if isinstance(reason, ssl.SSLError):
+        return 'не удалось установить TLS-соединение; проверьте HTTPS и журнал веб-сервера'
+    if isinstance(reason, ConnectionResetError):
+        return 'сервер сбросил соединение; проверьте reverse proxy и его журнал'
+    if isinstance(reason, OSError):
+        return 'сетевая ошибка; проверьте адрес, маршрутизацию и firewall'
+    if isinstance(error, (json.JSONDecodeError, UnicodeDecodeError)):
+        return 'получен ответ вместо JSON состояния; проверьте маршрут reverse proxy'
+    return 'не удалось прочитать ответ проверки состояния'
+
 def json_request(url, expected, *, attempts=30):
     last=''
     for _ in range(attempts):
         try:
             with urllib.request.urlopen(url,timeout=3) as response:
                 obj=json.loads(response.read(65536))
-            if all(obj.get(k)==v for k,v in expected.items()): return
-            last='неожиданный ответ'
-        except Exception as error: last=type(error).__name__
-        time.sleep(1)
+            if isinstance(obj, dict) and all(obj.get(k)==v for k,v in expected.items()): return
+            last='служба вернула неожиданный статус; проверьте её журнал и подключение к базе'
+        except Exception as error: last=health_error(error)
+        if _+1<attempts: time.sleep(1)
     raise InstallError(f'Не прошла проверка {url}: {last}.')
 
 def health(c, values, public=True):
@@ -442,10 +469,23 @@ def health(c, values, public=True):
     json_request('http://127.0.0.1:8081/ready',{'status':'ready'})
     if public and c['proxy']=='caddy':
         ui('  → Проверяем HTTPS и сертификаты (первый выпуск может занять минуту)…')
-        json_request('https://'+c['panel_domain']+'/api/health',{'status':'ok','db':True},attempts=45)
-        json_request('https://'+c['sub_domain']+'/ready',{'status':'ready'},attempts=45)
-        with urllib.request.urlopen('https://'+c['panel_domain']+'/',timeout=10) as response:
-            if b'<!doctype html' not in response.read(256).lower(): raise InstallError('Панель не отдаёт HTML.')
+        try:
+            json_request('https://'+c['panel_domain']+'/api/health',{'status':'ok','db':True},attempts=45)
+            json_request('https://'+c['sub_domain']+'/ready',{'status':'ready'},attempts=45)
+            url='https://'+c['panel_domain']+'/'
+            try:
+                with urllib.request.urlopen(url,timeout=10) as response:
+                    html=response.read(256)
+            except Exception as error:
+                raise InstallError(f'Не прошла проверка {url}: {health_error(error)}.') from None
+            if b'<!doctype html' not in html.lower(): raise InstallError('Панель не отдаёт HTML.')
+        except InstallError as error:
+            raise InstallError(str(error)+'\n'
+                'Локальные службы, API и база прошли проверку. Ошибка относится к публичному адресу.\n'
+                'Сверьте A/AAAA обоих доменов с IP этого сервера. Для стандартной установки нужны TCP 80 и 443, '
+                'включая firewall в кабинете хостинга.\n'
+                'Проверка Caddy: systemctl is-active caddy\n'
+                'Журнал Caddy: journalctl -u caddy -n 50 --no-pager') from None
 
 def restart(values):
     enabled=['sn-'+s for s in SERVICES if s!='bot' or values.get('BOT_TOKEN')]
