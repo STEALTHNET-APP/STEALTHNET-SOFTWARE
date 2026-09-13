@@ -1,0 +1,18 @@
+[package]
+name = "sn-bot"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+sn-core = { path = "../core" }
+tokio.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+chrono.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+reqwest.workspace = true
+sn-payments = { path = "../payments" }
+sqlx.workspace = true
+uuid.workspace = true

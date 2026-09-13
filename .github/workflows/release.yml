@@ -1,0 +1,109 @@
+name: Build and draft release
+on:
+  push:
+    tags: ['v[0-9]+.[0-9]+.[0-9]+*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Existing release tag, for example v0.1.0'
+        required: true
+        type: string
+permissions:
+  contents: read
+concurrency:
+  group: release-${{ github.event.inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+          - arch: arm64
+            runner: ubuntu-22.04-arm
+            target: aarch64-unknown-linux-gnu
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref_name }}
+          persist-credentials: false
+      - name: Validate tag and package version
+        env:
+          RELEASE_TAG: ${{ github.event.inputs.tag || github.ref_name }}
+        run: |
+          python3 - <<'PY'
+          import os, re
+          tag=os.environ['RELEASE_TAG']
+          version=re.search(r'\[workspace.package\]\s+version = "([^"]+)"',open('Cargo.toml').read()).group(1)
+          assert re.fullmatch(r'v\d+\.\d+\.\d+(?:-[a-zA-Z0-9][a-zA-Z0-9.-]*)?',tag), 'Invalid tag'
+          assert tag=='v'+version, 'Tag must match Cargo workspace version'
+          PY
+      - name: Prepare compiler dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends build-essential pkg-config libssl-dev
+          rustup toolchain install 1.98.1 --profile minimal
+          rustup default 1.98.1
+      - name: Test release logic
+        run: |
+          make test-release
+          cargo test --locked --workspace --lib --bins
+      - name: Build native binaries
+        env:
+          SN_BUILD_COMMIT: ${{ github.sha }}
+          SN_BUILD_BRANCH: ${{ github.event.inputs.tag || github.ref_name }}
+          SN_BUILD_NUMBER: ${{ github.run_number }}
+          SN_BUILD_TARGET: ${{ matrix.target }}
+        run: |
+          export SN_BUILD_TIME=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          export SN_BUILD_COMMIT=$(git rev-parse HEAD)
+          cargo build --release --locked --workspace
+          mkdir -p build
+          for name in sn-api sn-sub sn-bot sn-worker sn-admin sn-node sn-cabinet; do
+            install -m755 "target/release/$name" "build/$name"
+          done
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: binaries-${{ matrix.arch }}
+          path: build/*
+          if-no-files-found: error
+          retention-days: 7
+  package:
+    needs: build
+    runs-on: ubuntu-22.04
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref_name }}
+          persist-credentials: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: binaries-amd64
+          path: builds/amd64
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: binaries-arm64
+          path: builds/arm64
+      - name: Package verified files
+        env:
+          RELEASE_TAG: ${{ github.event.inputs.tag || github.ref_name }}
+        run: python3 deploy/package-release.py --version "$RELEASE_TAG" --builds builds --output dist
+      - name: Create draft with immutable assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.event.inputs.tag || github.ref_name }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            echo 'Release already exists. Assets are never overwritten; publish a new version.' >&2
+            exit 1
+          fi
+          gh release create "$RELEASE_TAG" dist/* --verify-tag --draft --title "STEALTHNET $RELEASE_TAG" --generate-notes

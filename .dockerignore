@@ -1,0 +1,11 @@
+target
+.git
+.env
+*.log
+
+.qa-runtime
+.impeccable
+backups
+**/node_modules
+**/target
+docs/audit-*

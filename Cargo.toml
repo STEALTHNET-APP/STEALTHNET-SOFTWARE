@@ -1,0 +1,32 @@
+[workspace]
+resolver = "2"
+members = ["crates/core", "crates/payments", "crates/api", "crates/sub", "crates/bot", "crates/node", "crates/worker"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "AGPL-3.0-only"
+
+[workspace.dependencies]
+tokio = { version = "1", features = ["full"] }
+axum = { version = "0.8", features = ["macros"] }
+tower-http = { version = "0.6", features = ["cors", "fs", "trace", "compression-gzip", "catch-panic"] }
+sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio-rustls", "postgres", "chrono", "uuid", "bigdecimal"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+chrono = { version = "0.4", features = ["serde"] }
+uuid = { version = "1", features = ["v4", "serde"] }
+argon2 = "0.5"
+rand = "0.8"
+base64 = "0.22"
+sha2 = "0.10"
+hmac = "0.12"
+hex = "0.4"
+x25519-dalek = { version = "2", features = ["static_secrets"] }
+thiserror = "2"
+anyhow = "1"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+regex = "1"
+async-trait = "0.1"
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }

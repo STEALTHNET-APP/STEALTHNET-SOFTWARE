@@ -1,0 +1,1271 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
+/* ─────────────────────────── ТЕМА ───────────────────────────
+   Панель для дела, а не для скриншота: светлый интерфейс по
+   умолчанию, тёмный — переключателем в шапке. Ниже только смысловые
+   имена: «поверхность», «граница», «опасно». Ни один блок не знает
+   конкретных цветов, поэтому смена темы не требует править вёрстку.
+
+   Цвет здесь — признак смысла, а не украшение: акцент означает
+   «главное действие», зелёный — «в порядке», красный — «авария», и
+   так во всей панели без исключений.                              */
+:root{
+  --bg:#F5F7FA;              /* рабочая область */
+  --sidebar:#FFFFFF;         /* меню и шапка */
+  --surface:#FFFFFF;         /* карточки, таблицы */
+  --surface-2:#FFFFFF;       /* окна, поля ввода */
+  --surface-3:#F1F5F9;       /* чипы, вторичные плашки */
+  --surface-4:#E2E8F0;       /* активные вторичные плашки */
+  --border:#E4E9F0; --border-hi:#CBD5E1;
+  --hover:rgba(15,23,42,.045);
+  --shadow:0 1px 2px rgba(15,23,42,.05), 0 8px 24px -12px rgba(15,23,42,.16);
+  --shadow-lift:0 12px 40px rgba(15,23,42,.14);
+  --shadow-modal:0 24px 70px rgba(15,23,42,.22);
+  --scrim:rgba(15,23,42,.42);   /* затемнение под окном */
+  --edge-shadow:rgba(15,23,42,.16);  /* подсказка «есть что прокрутить» */
+  /* Третий уровень был #748099 — на белом это 3.97:1, ниже нормы для
+     мелкого текста, а им набрана половина подписей в панели. Затемнён
+     до уровня, который проходит и на белом, и на серых плашках. */
+  --text:#0F172A; --text-2:#44536B; --text-3:#5C6980;
+
+  /* Бирюзовый берём тёмного оттенка: на белом фоне светлый бирюзовый
+     не проходит по контрасту, и подпись на кнопке становится мутной. */
+  /* Главное действие — глубокий тёмно-синий: он даёт нужный контраст на
+     белом и выглядит спокойнее кислотной заливки. Бирюзовый оставлен
+     акцентом графиков, активных пунктов и фокуса. */
+  --primary:#12233D; --primary-hi:#1D3A63; --on-primary:#FFFFFF;
+  --accent:#0E7490; --accent-hi:#0891B2; --on-accent:#FFFFFF;
+  --accent-dim:#E1F3F8; --accent-glow:rgba(8,145,178,.28);
+
+  --ok:#0C7A53; --warn:#9A5308; --err:#C42B22; --info:#1D4ED8;
+  /* Те же цвета, но для текста на своей же светлой подложке: зелёный
+     на бледно-зелёном при 11 пикселях не дотягивал до нормы чтения. */
+  --ok-ink:#07603F; --warn-ink:#7C4206; --err-ink:#A6231B;
+  --info-ink:#1739A8; --violet-ink:#5B21B6;
+  --violet:#7C3AED; --cyan:#0E7490; --pink:#BE185D;
+
+  /* Доля цвета в подложке значка или плашки. На светлом фоне заливка
+     должна быть едва заметной, на тёмном — плотнее, иначе не видно. */
+  --tint:12%;
+  --tint-hi:20%;
+
+  /* Код остаётся тёмным в обеих темах: подсветка синтаксиса
+     рассчитана на тёмный фон, а светлая её версия читается хуже. */
+  --code-bg:#0F172A; --code-fg:#D6E0EE; --code-dim:#64748B;
+
+  --font-ui:'Inter',-apple-system,"SF Pro Text",system-ui,sans-serif;
+  --font-mono:'JetBrains Mono',ui-monospace,"SF Mono",Menlo,monospace;
+  --r-sm:8px; --r-md:12px; --r-lg:16px;
+
+  /* Шаг сетки. Отступы «на глаз» — главная причина, почему аккуратный
+     по частям интерфейс в целом выглядит неряшливо: каждый экран
+     оказывается чуть-чуть в своём ритме. Все вертикальные интервалы
+     кратны четырём и берутся отсюда. */
+  --s-1:4px; --s-2:8px; --s-3:12px; --s-4:16px; --s-5:20px; --s-6:24px; --s-8:32px;
+
+  /* Размеры текста. Их было полтора десятка, включая 13.5 и 12.5 в
+     соседних блоках — разница незаметна поодиночке и создаёт кашу
+     вместе. Оставлены пять ступеней с ясным назначением. */
+  --t-xs:11px;    /* подписи под полями, служебные пометки */
+  --t-sm:12px;    /* второстепенный текст, ячейки таблиц */
+  --t-md:13px;    /* основной текст интерфейса */
+  --t-lg:15px;    /* заголовки карточек и модалок */
+  --t-xl:19px;    /* заголовок страницы */
+  --t-cap:10.5px; /* НАДПИСИ КАПСОМ */
+
+  /* Заголовок капсом встречается в карточках, таблицах и формах — и
+     везде набран по-своему. Один набор на всех. */
+  --cap:600 var(--t-cap)/1.2 var(--font-ui);
+  --cap-ls:.11em;
+}
+
+/* Тёмная тема. Не «то же самое, но чернее»: на тёмном фоне работают
+   другие оттенки статусов — тёмно-зелёный со светлого фона на тёмном
+   выглядит грязным пятном, поэтому цвета берутся светлее и мягче. */
+[data-theme="dark"]{
+  --bg:#0B1220;
+  --sidebar:#0F172A;
+  --surface:#121C2E;
+  --surface-2:#16233A;
+  --surface-3:#1D2C45;
+  --surface-4:#274058;
+  --border:rgba(148,163,184,.18); --border-hi:rgba(148,163,184,.34);
+  --hover:rgba(255,255,255,.055);
+  --shadow:0 1px 2px rgba(0,0,0,.4), 0 8px 24px -12px rgba(0,0,0,.6);
+  --shadow-lift:0 12px 40px rgba(0,0,0,.5);
+  --shadow-modal:0 24px 70px rgba(0,0,0,.6);
+  --scrim:rgba(3,7,18,.66);
+  --edge-shadow:rgba(0,0,0,.5);
+  --text:#E9EFF8; --text-2:#AFC0D6; --text-3:#93A5BE;
+
+  /* На тёмном фоне тёмно-синяя кнопка сливается с подложкой, поэтому
+     главное действие здесь — тот же бирюзовый. */
+  --primary:#22D3EE; --primary-hi:#67E8F9; --on-primary:#062733;
+  --accent:#22D3EE; --accent-hi:#67E8F9; --on-accent:#062733;
+  --accent-dim:rgba(34,211,238,.15); --accent-glow:rgba(34,211,238,.35);
+
+  --ok:#34D399; --warn:#FBBF24; --err:#F87171; --info:#60A5FA;
+  --violet:#A78BFA; --cyan:#22D3EE; --pink:#F472B6;
+  /* На тёмной подложке текст плашки, наоборот, осветляем: насыщенный
+     цвет заливки и такой же цвет текста дают мутное пятно. */
+  --ok-ink:#6EE7B7; --warn-ink:#FCD34D; --err-ink:#FCA5A5;
+  --info-ink:#93C5FD; --violet-ink:#C4B5FD;
+
+  --tint:16%;
+  --tint-hi:26%;
+  --code-bg:#080F1C; --code-fg:#CBD5E1; --code-dim:#5C6E88;
+}
+/* Заливка «цветом смысла»: одна запись вместо десятка rgba, и доля
+   подмешивания меняется вместе с темой. */
+.tint-ok{background:color-mix(in srgb, var(--ok) var(--tint), transparent)}
+.tint-err{background:color-mix(in srgb, var(--err) var(--tint), transparent)}
+/* Единый вид всех надписей капсом: раньше каждая задавала свои
+   размер, вес и разрядку. */
+.card .label,.tbl th,.form-section>h4,.nav-title,.menu .m-title{
+  font:var(--cap);letter-spacing:var(--cap-ls);text-transform:uppercase;color:var(--text-3)}
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{height:100%}
+body{background:var(--bg);color:var(--text);font-family:var(--font-ui);font-size:14px;line-height:1.5;-webkit-font-smoothing:antialiased;overflow:hidden}
+/* Фон ровный. Сетка «в клеточку» поверх всего — примета шаблонных
+   тёмных админок: она ничего не сообщает, зато сразу выдаёт себя. */
+::selection{background:var(--accent-dim);color:var(--accent)}
+::-webkit-scrollbar{width:10px;height:10px}
+::-webkit-scrollbar-thumb{background:var(--border);border-radius:6px;border:3px solid var(--bg)}
+::-webkit-scrollbar-thumb:hover{background:var(--border-hi)}
+.num{font-family:var(--font-mono);font-variant-numeric:tabular-nums;letter-spacing:-.01em}
+svg{flex:none;stroke:currentColor}
+button{font-family:var(--font-ui)}
+
+/* ═══ LAYOUT ═══ */
+.app{display:grid;grid-template-columns:236px minmax(0,1fr);grid-template-rows:56px minmax(0,1fr) 32px;
+  grid-template-areas:"side top" "side main" "side status";height:100vh;position:relative;z-index:1}
+.app.auth-mode{display:flex;align-items:center;justify-content:center}
+
+/* ═══ SIDEBAR ═══ */
+.side{grid-area:side;background:var(--surface);border-right:1px solid var(--border);display:flex;flex-direction:column;padding:14px 12px 10px;overflow-y:auto}
+.logo{display:flex;align-items:center;gap:10px;padding:4px 8px 14px;cursor:pointer}
+.logo-mark{position:relative;flex:none;display:inline-flex}
+.logo-mark svg{width:100%;height:100%;display:block}
+.logo-mark::after{content:"";position:absolute;inset:-3px;border-radius:28%;border:1px solid var(--border-hi);opacity:0;animation:ping 3.6s cubic-bezier(0,0,.2,1) infinite}
+@keyframes ping{0%{transform:scale(.78);opacity:.55}70%{transform:scale(1.22);opacity:0}100%{opacity:0}}
+.logo-name{font-weight:700;font-size:15px;letter-spacing:.14em}
+.logo-sub{font-size:9.5px;color:var(--text-3);letter-spacing:.22em;margin-top:1px}
+.nav-group{margin-top:12px}
+.nav-title{font-size:10px;font-weight:600;letter-spacing:.16em;color:var(--text-3);text-transform:uppercase;padding:0 10px 5px}
+.nav-item{display:flex;align-items:center;gap:10px;padding:6.5px 10px;border-radius:var(--r-sm);color:var(--text-2);cursor:pointer;position:relative;font-weight:500;font-size:13.5px;
+  transition:background .16s,color .16s;border:1px solid transparent;user-select:none;text-decoration:none}
+.nav-item svg{width:16px;height:16px;stroke:currentColor}
+.nav-item:hover{background:var(--hover);color:var(--text)}
+.nav-item.active{background:var(--accent-dim);color:var(--accent);border-color:color-mix(in srgb, var(--accent) 14%, transparent)}
+.nav-item.active::before{content:"";position:absolute;left:-12px;top:20%;bottom:20%;width:2px;border-radius:2px;background:var(--accent)}
+.nav-badge{margin-left:auto;font-size:10.5px;padding:1px 7px;border-radius:20px;background:var(--hover);color:var(--text-2);font-family:var(--font-mono)}
+.nav-badge.alert{background:color-mix(in srgb, var(--err) 14%, transparent);color:var(--err)}
+.side-bottom{margin-top:auto;padding-top:12px;border-top:1px solid var(--border)}
+.side-user{display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:var(--r-sm);cursor:pointer}
+.side-user:hover{background:var(--hover)}
+.avatar{width:28px;height:28px;border-radius:8px;flex:none;background:var(--accent-dim);display:flex;align-items:center;justify-content:center;color:var(--accent);font-weight:700;font-size:12px;border:1px solid color-mix(in srgb, var(--accent) 25%, transparent)}
+.side-user b{font-size:12.5px;display:block;line-height:1.2}
+.side-user span{font-size:11px;color:var(--text-3)}
+
+/* ═══ TOPBAR ═══ */
+.top{grid-area:top;display:flex;align-items:center;gap:12px;padding:0 20px;border-bottom:1px solid var(--border);background:color-mix(in srgb, var(--sidebar) 84%, transparent);backdrop-filter:blur(12px)}
+.crumb{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--text-3);white-space:nowrap}
+.crumb b{color:var(--text);font-weight:600}
+.crumb svg{width:12px;height:12px;stroke:var(--text-3)}
+.search{margin-left:auto;display:flex;align-items:center;gap:8px;width:280px;background:var(--surface-2);border:1px solid var(--border);border-radius:10px;padding:7px 12px;color:var(--text-3);cursor:pointer;transition:border-color .16s;font-size:13px}
+.search:hover{border-color:var(--border-hi)}
+.search svg{width:14px;height:14px;stroke:var(--text-3)}
+.search .kbd{margin-left:auto}
+.kbd{font-family:var(--font-mono);font-size:10.5px;border:1px solid var(--border-hi);border-radius:5px;padding:1px 6px;color:var(--text-2);background:var(--surface-3)}
+.env{display:flex;align-items:center;gap:7px;font-family:var(--font-mono);font-size:11px;letter-spacing:.08em;color:var(--accent);background:var(--accent-dim);border:1px solid color-mix(in srgb, var(--accent) 20%, transparent);border-radius:20px;padding:4px 12px;white-space:nowrap}
+.env .dot{width:6px;height:6px;border-radius:50%;background:var(--accent);box-shadow:0 0 8px var(--accent-glow);animation:breathe 2.4s ease-in-out infinite}
+@keyframes breathe{50%{opacity:.4}}
+.icon-btn{width:34px;height:34px;border-radius:9px;display:flex;align-items:center;justify-content:center;border:1px solid var(--border);background:var(--surface-2);cursor:pointer;position:relative;transition:border-color .16s;color:var(--text-2)}
+.icon-btn:hover{border-color:var(--border-hi);color:var(--text)}
+.icon-btn svg{width:16px;height:16px;stroke:currentColor}
+.icon-btn .pip{position:absolute;top:7px;right:8px;width:6px;height:6px;border-radius:50%;background:var(--err);border:2px solid var(--surface-2)}
+
+/* ═══ MAIN ═══ */
+.main{grid-area:main;overflow-y:auto;padding:22px 24px 40px;position:relative}
+.page-head{display:flex;align-items:flex-start;gap:14px;margin-bottom:18px;flex-wrap:wrap}
+.page-head h1{font-size:var(--t-xl);font-weight:700;letter-spacing:-.02em;line-height:1.25}
+.page-head .desc{font-size:var(--t-sm);color:var(--text-3);margin-top:var(--s-1);max-width:62ch;line-height:1.5}
+.page-head .actions{margin-left:auto;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+
+/* ═══ STATUSBAR ═══ */
+.statusbar{grid-area:status;border-top:1px solid var(--border);background:var(--surface);display:flex;align-items:center;gap:20px;padding:0 20px;font-family:var(--font-mono);font-size:10.5px;color:var(--text-3);white-space:nowrap;overflow:hidden}
+.statusbar .item{display:flex;align-items:center;gap:7px}
+.statusbar .dot{width:5px;height:5px;border-radius:50%;background:var(--ok)}
+.statusbar b{color:var(--text-2);font-weight:500}
+.statusbar .right{margin-left:auto;display:flex;gap:20px}
+
+/* ═══ CARDS ═══ */
+/* Карточка. Отступы из общей шкалы: раньше в разных местах стояли
+   13/15/16/18 пикселей, и ряд карточек выглядел неровным. */
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--r-lg);
+  padding:var(--s-4);position:relative;transition:border-color .2s, box-shadow .2s}
+.card:hover{border-color:var(--border-hi)}
+/* Ряд карточек одной высоты: содержимое разной длины иначе делает
+   соседние карточки разными, и строка «плывёт». */
+.grid>.card{height:100%}
+.grid{align-items:stretch}
+.card .label{font-size:11px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:var(--text-3);display:flex;align-items:center;gap:7px}
+.card .label svg{width:13px;height:13px;stroke:var(--text-3)}
+.metric{font-size:22px;font-weight:650;letter-spacing:-.02em;margin-top:var(--s-2)}
+.sub-note{font-size:var(--t-xs);color:var(--text-3);margin-top:var(--s-1)}
+/* Элемент сетки по умолчанию не уже своего содержимого: один длинный
+   блок кода или адрес без пробелов растягивал колонку, а вместе с ней и
+   всю страницу — появлялась горизонтальная прокрутка на ровном месте. */
+.grid{display:grid;gap:var(--s-3)}
+.grid>*{min-width:0}
+.card{min-width:0}
+/* Длинные строки без пробелов (ключи, адреса, UUID) переносим, а не
+   выталкиваем за край. */
+.info-row .v,.sub,.sub-note,.hint{overflow-wrap:anywhere}
+.g4{grid-template-columns:repeat(4,1fr)} .g3{grid-template-columns:repeat(3,1fr)} .g2{grid-template-columns:repeat(2,1fr)}
+@media(max-width:1200px){.g4{grid-template-columns:repeat(2,1fr)}.g3{grid-template-columns:repeat(2,1fr)}}
+.section-h{display:flex;align-items:baseline;gap:var(--s-2);margin:var(--s-5) 0 var(--s-3);flex-wrap:wrap}
+.section-h h2{font-size:var(--t-md);font-weight:650;letter-spacing:-.01em}
+.section-h span{font-size:var(--t-xs);color:var(--text-3)}
+.section-h .spacer{flex:1}
+
+/* ═══ BUTTONS ═══ */
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:7px;padding:8px 14px;font-size:12.5px;font-weight:600;border-radius:9px;border:1px solid var(--border-hi);background:var(--surface-2);color:var(--text-2);cursor:pointer;transition:all .16s;white-space:nowrap;user-select:none}
+.btn svg{width:14px;height:14px;stroke:currentColor}
+.btn:hover{color:var(--text);border-color:var(--border-hi)}
+.btn.primary{background:var(--primary);border-color:var(--primary);color:var(--on-primary)}
+.btn.primary:hover{background:var(--primary-hi);border-color:var(--primary-hi);color:var(--on-primary)}
+.btn.danger{background:color-mix(in srgb, var(--err) 10%, transparent);border-color:color-mix(in srgb, var(--err) 30%, transparent);color:var(--err-ink)}
+.btn.danger:hover{background:color-mix(in srgb, var(--err) 18%, transparent)}
+.btn.ghost{background:transparent;border-color:transparent}
+.btn.ghost:hover{background:var(--hover)}
+.btn.sm{padding:5px 10px;font-size:11.5px;border-radius:7px}
+.btn.sm svg{width:12px;height:12px}
+.btn:disabled{opacity:.45;cursor:not-allowed}
+.btn.icon-only{padding:8px;width:32px;height:32px}
+
+/* ═══ SEGMENTED ═══ */
+.seg{display:inline-flex;background:var(--surface-2);border:1px solid var(--border);border-radius:8px;padding:2px}
+.seg button{border:0;background:transparent;color:var(--text-3);font-size:11.5px;font-weight:500;padding:4px 12px;border-radius:6px;cursor:pointer;white-space:nowrap}
+.seg button.on{background:var(--surface-4);color:var(--text)}
+
+/* ═══ FORMS ═══ */
+.field{margin-bottom:var(--s-4)}
+.field label{display:flex;align-items:center;gap:var(--s-1);font-size:var(--t-sm);font-weight:600;color:var(--text-2);margin-bottom:var(--s-1)}
+.field label .req{color:var(--err)}
+/* Подсказка мелкая везде, а не только внутри .field: вне поля она
+   набиралась основным кеглем и читалась как обычный абзац. */
+.hint{font-size:var(--t-xs);color:var(--text-3);margin-top:var(--s-1);line-height:1.5}
+.inp{width:100%;background:var(--surface-2);border:1px solid var(--border-hi);border-radius:9px;padding:8.5px 12px;font-size:13px;color:var(--text);font-family:var(--font-ui);outline:none;transition:border-color .16s, box-shadow .16s}
+.inp:focus{border-color:color-mix(in srgb, var(--accent) 50%, transparent);box-shadow:0 0 0 3px color-mix(in srgb, var(--accent) 8%, transparent)}
+.inp::placeholder{color:var(--text-3)}
+.inp.mono{font-family:var(--font-mono);font-size:12.5px}
+textarea.inp{resize:vertical;min-height:70px;line-height:1.55}
+.inp-row{display:flex;gap:10px}
+.inp-row>*{flex:1}
+.inp-group{display:flex;align-items:stretch}
+.inp-group .inp{border-radius:9px 0 0 9px;border-right:0}
+.inp-group .suffix{display:flex;align-items:center;padding:0 12px;background:var(--surface-3);border:1px solid var(--border-hi);border-radius:0 9px 9px 0;font-size:12px;color:var(--text-3);font-family:var(--font-mono)}
+select.inp{appearance:none;cursor:pointer;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%235C6577' stroke-width='2'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 12px center;padding-right:34px}
+select.inp option{background:var(--surface-3);color:var(--text)}
+/* Переключатель.
+
+   Было так: выключенный — бледная плашка с тёмной точкой, включённый —
+   почти такая же бледная плашка с точкой другого оттенка. На светлой
+   теме состояния отличались только цветом точки шириной в четырнадцать
+   пикселей, и понять положение с одного взгляда было нельзя.
+
+   Стало: положение читается заливкой всей дорожки — серая или цветная, —
+   а бегунок всегда белый. Так работают переключатели в телефонах, и
+   разбираться в них не приходится. */
+.switch{position:relative;width:38px;height:22px;flex:none;cursor:pointer;display:inline-block}
+.switch input{opacity:0;width:0;height:0;position:absolute}
+.switch .tr{position:absolute;inset:0;background:var(--border-hi);border-radius:22px;
+  transition:background .18s;box-shadow:inset 0 0 0 1px color-mix(in srgb, var(--text) 8%, transparent)}
+.switch .tr::after{content:"";position:absolute;top:3px;left:3px;width:16px;height:16px;
+  border-radius:50%;background:#fff;transition:transform .18s;
+  box-shadow:0 1px 3px rgba(15,23,42,.35)}
+.switch input:checked+.tr{background:var(--accent);box-shadow:none}
+.switch input:checked+.tr::after{transform:translateX(16px)}
+/* Видимый фокус: переключатель часто ставят в таблицу, и добраться до
+   него с клавиатуры должно быть можно. */
+.switch input:focus-visible+.tr{outline:2px solid var(--accent);outline-offset:2px}
+.switch input:disabled+.tr{opacity:.45;cursor:not-allowed}
+.switch-row{display:flex;align-items:center;gap:12px;padding:10px 0}
+.switch-row .sw-txt{flex:1}
+.switch-row .sw-txt b{font-size:13px;font-weight:600;display:block}
+.switch-row .sw-txt span{font-size:11.5px;color:var(--text-3)}
+.check{display:flex;align-items:center;gap:9px;cursor:pointer;font-size:13px;color:var(--text-2);user-select:none}
+.check input{appearance:none;width:16px;height:16px;border:1px solid var(--border-hi);border-radius:5px;background:var(--surface-2);cursor:pointer;position:relative;flex:none;transition:all .15s}
+.check input:checked{background:var(--accent);border-color:var(--accent)}
+.check input:checked::after{content:"";position:absolute;left:4.5px;top:1.5px;width:4px;height:8px;border:solid var(--on-accent);border-width:0 2px 2px 0;transform:rotate(45deg)}
+.chips-select{display:flex;flex-wrap:wrap;gap:7px}
+.chip-opt{font-size:12px;padding:5px 12px;border-radius:20px;border:1px solid var(--border-hi);background:var(--surface-2);color:var(--text-2);cursor:pointer;transition:all .15s;user-select:none}
+.chip-opt.on{background:var(--accent-dim);border-color:color-mix(in srgb, var(--accent) 40%, transparent);color:var(--accent)}
+.quick-chips{display:flex;gap:6px;margin-top:7px;flex-wrap:wrap}
+.quick-chips button{font-size:10.5px;font-family:var(--font-mono);padding:2.5px 9px;border-radius:6px;border:1px solid var(--border);background:var(--surface-3);color:var(--text-3);cursor:pointer}
+.quick-chips button:hover{color:var(--accent);border-color:color-mix(in srgb, var(--accent) 30%, transparent)}
+.slider-row{display:flex;align-items:center;gap:14px}
+input[type=range]{flex:1;appearance:none;height:4px;border-radius:3px;background:var(--surface-4);outline:none}
+input[type=range]::-webkit-slider-thumb{appearance:none;width:16px;height:16px;border-radius:50%;background:var(--accent);cursor:pointer;box-shadow:0 0 10px color-mix(in srgb, var(--accent) 40%, transparent)}
+.form-section{border-top:1px solid var(--border);padding-top:14px;margin-top:16px}
+.form-section>h4{font-size:11px;font-weight:600;letter-spacing:.12em;text-transform:uppercase;color:var(--text-3);margin-bottom:12px;display:flex;align-items:center;gap:7px}
+.form-section>h4 svg{width:13px;height:13px;stroke:var(--text-3)}
+
+/* ═══ BADGES / STATUS ═══ */
+.bdg{display:inline-flex;align-items:center;gap:6px;font-size:11px;font-weight:600;padding:2.5px 10px;border-radius:20px;white-space:nowrap}
+.bdg .dot{width:6px;height:6px;border-radius:50%;background:currentColor}
+.bdg.ok{color:var(--ok-ink);background:color-mix(in srgb, var(--ok) 10%, transparent)}
+.bdg.warn{color:var(--warn-ink);background:color-mix(in srgb, var(--warn) 10%, transparent)}
+.bdg.err{color:var(--err-ink);background:color-mix(in srgb, var(--err) 10%, transparent)}
+.bdg.info{color:var(--info-ink);background:color-mix(in srgb, var(--info) 10%, transparent)}
+.bdg.violet{color:var(--violet-ink);background:color-mix(in srgb, var(--violet) 10%, transparent)}
+.bdg.neutral{color:var(--text-2);background:var(--hover)}
+.bdg.accent{color:var(--accent);background:var(--accent-dim)}
+.bdg.live .dot{animation:breathe 2s infinite}
+.chip{font-family:var(--font-mono);font-size:10px;padding:2px 8px;border-radius:5px;background:var(--surface-3);border:1px solid var(--border-hi);color:var(--text-2);white-space:nowrap}
+.chip.accent{color:var(--accent);border-color:color-mix(in srgb, var(--accent) 30%, transparent);background:var(--accent-dim)}
+.chip.click{cursor:pointer}
+.chip.click:hover{border-color:var(--border-hi);color:var(--text)}
+
+/* ═══ TABLE ═══ */
+/* Широкая таблица прокручивается вбок, а не обрезается: прежде правые
+   столбцы просто исчезали за краем карточки, и о них нельзя было
+   догадаться. */
+.tbl-wrap{background:var(--surface);border:1px solid var(--border);
+  border-radius:var(--r-lg);overflow-x:auto}
+.tbl{width:100%;border-collapse:collapse}
+.tbl th{text-align:left;padding:9px var(--s-3);border-bottom:1px solid var(--border);
+  white-space:nowrap;background:var(--surface)}
+/* Строки уплотнены: было под сто пикселей на строку, на экран влезало
+   пять клиентов из восьми тысяч. */
+.tbl td{padding:8px var(--s-3);border-bottom:1px solid var(--border);
+  font-size:var(--t-md);vertical-align:middle}
+/* Числа выравниваем по правому краю и одной шириной цифры: колонку с
+   трафиком и суммами так можно сравнивать взглядом, не читая. */
+.tbl td.n,.tbl th.n{text-align:right;font-variant-numeric:tabular-nums}
+/* Палец на строке — обещание, что по ней можно нажать. Журналы и сводки
+   ничего не открывают, и обещать там нечего: у них курсор обычный. */
+.tbl tbody tr{cursor:pointer}
+.tbl.readonly tbody tr{cursor:default}
+.tbl tr:last-child td{border-bottom:0}
+.tbl tbody tr{transition:background .13s}
+.tbl tbody tr:hover{background:var(--hover)}
+.tbl tbody tr.selected{background:color-mix(in srgb, var(--accent) 4%, transparent)}
+.tbl .mono{font-family:var(--font-mono);font-size:12px}
+.sub{font-size:11px;color:var(--text-3);display:block;margin-top:1px}
+.cell-main{display:flex;align-items:center;gap:var(--s-2);min-width:0}
+.cell-main b{font-size:13px;font-weight:600;display:block;line-height:1.3}
+.cell-main .sub{margin-top:0}
+.tbl-foot{display:flex;align-items:center;gap:14px;padding:10px 16px;font-size:12px;color:var(--text-3)}
+.tbl-foot .pages{margin-left:auto;display:flex;gap:4px}
+.tbl-foot .pages button{min-width:26px;height:26px;border-radius:7px;border:1px solid transparent;background:transparent;color:var(--text-3);font-family:var(--font-mono);font-size:11.5px;cursor:pointer}
+.tbl-foot .pages button.on{background:var(--surface-3);border-color:var(--border-hi);color:var(--text)}
+.tbl-foot .pages button:hover:not(.on){color:var(--text)}
+.progress{height:4px;border-radius:3px;background:var(--surface-3);overflow:hidden;min-width:70px}
+.progress i{display:block;height:100%;border-radius:3px;background:var(--accent)}
+.progress i.warn{background:var(--warn)} .progress i.err{background:var(--err)} .progress i.info{background:var(--info)}
+.traffic-cell{min-width:124px;white-space:nowrap}
+.traffic-cell .num{white-space:nowrap}
+.traffic-cell .num{font-size:11.5px;color:var(--text-2)}
+.grip{cursor:grab;color:var(--text-3);display:inline-flex}
+.grip svg{width:14px;height:14px}
+.status-dot{width:7px;height:7px;border-radius:50%;display:inline-block;flex:none}
+.status-dot.ok{background:var(--ok);box-shadow:0 0 7px color-mix(in srgb, var(--ok) 50%, transparent)}
+.status-dot.err{background:var(--err);box-shadow:0 0 7px color-mix(in srgb, var(--err) 50%, transparent)}
+.status-dot.warn{background:var(--warn)}
+.status-dot.off{background:var(--text-3)}
+
+/* ═══ TOOLBAR ═══ */
+.toolbar{display:flex;align-items:center;gap:9px;margin-bottom:12px;flex-wrap:wrap}
+.toolbar .search-inp{position:relative;width:280px}
+.toolbar .search-inp svg{position:absolute;left:11px;top:50%;transform:translateY(-50%);width:14px;height:14px;stroke:var(--text-3);pointer-events:none}
+.toolbar .search-inp .inp{padding-left:33px}
+.bulk-bar{display:flex;align-items:center;gap:10px;background:var(--accent-dim);border:1px solid color-mix(in srgb, var(--accent) 25%, transparent);border-radius:10px;padding:8px 14px;margin-bottom:12px;font-size:12.5px}
+.bulk-bar b{color:var(--accent)}
+
+/* ═══ MODALS & DRAWERS ═══ */
+.layer{position:fixed;inset:0;z-index:100;display:flex;align-items:center;justify-content:center}
+.layer .ovl{position:absolute;inset:0;background:var(--scrim);backdrop-filter:blur(4px);opacity:0;transition:opacity .2s}
+.layer.in .ovl{opacity:1}
+/* Окно занимает столько, сколько нужно содержимому. Раньше потолок был
+   100vh − 60px: короткая форма всё равно растягивалась почти на весь
+   экран, а длинная упиралась в края, и подвал с кнопками оказывался
+   вплотную к нижней кромке — казалось, что он обрезан. */
+.modal{position:relative;width:520px;max-width:calc(100vw - var(--s-8));
+  /* Форма растёт по содержимому — маленькому окну подтверждения незачем
+     занимать экран, — но потолок поднят почти до края. */
+  max-height:min(94vh, 940px);
+  display:flex;flex-direction:column;background:var(--surface-2);
+  border:1px solid var(--border-hi);border-radius:var(--r-lg);
+  box-shadow:var(--shadow-modal);opacity:0;
+  transform:translateY(14px) scale(.98);transition:all .22s cubic-bezier(.2,.7,.2,1)}
+.layer.in .modal{opacity:1;transform:none}
+.modal.lg{width:720px} .modal.xl{width:900px} .modal.sm{width:420px}
+
+.m-head{display:flex;align-items:center;gap:var(--s-3);padding:var(--s-4) var(--s-5);
+  border-bottom:1px solid var(--border);flex:none}
+.m-head .m-ic{width:34px;height:34px;border-radius:10px;background:var(--accent-dim);display:flex;align-items:center;justify-content:center;flex:none}
+.m-head .m-ic svg{width:16px;height:16px;stroke:var(--accent)}
+.m-head .m-ic.danger{background:color-mix(in srgb, var(--err) 12%, transparent)} .m-head .m-ic.danger svg{stroke:var(--err)}
+.m-head .m-ic.info{background:color-mix(in srgb, var(--info) 12%, transparent)} .m-head .m-ic.info svg{stroke:var(--info)}
+.m-head h3{font-size:var(--t-lg);font-weight:700;line-height:1.3}
+.m-head .m-sub{font-size:var(--t-xs);color:var(--text-3);margin-top:2px}
+.m-head .x{margin-left:auto;flex:none}
+
+/* Тень у края прокрутки. Без неё непонятно, что содержимое продолжается
+   за пределами окна: человек нажимает «Сохранить», не увидев половины
+   полей. Тень появляется сама, когда есть что прокручивать. */
+.m-body{padding:var(--s-5);overflow-y:auto;flex:1;
+  background:
+    linear-gradient(var(--surface-2) 30%, transparent) top    /100% 22px local no-repeat,
+    linear-gradient(transparent, var(--surface-2) 70%) bottom /100% 22px local no-repeat,
+    radial-gradient(farthest-side at 50% 0,   var(--edge-shadow), transparent) top    /100% 11px scroll no-repeat,
+    radial-gradient(farthest-side at 50% 100%,var(--edge-shadow), transparent) bottom /100% 11px scroll no-repeat}
+
+/* Кнопки прижаты вправо: подтверждающее действие всегда в одном месте,
+   и его не приходится искать глазами в каждом новом окне. */
+.m-foot{display:flex;align-items:center;justify-content:flex-end;gap:var(--s-2);
+  padding:var(--s-3) var(--s-5);border-top:1px solid var(--border);flex:none;
+  background:var(--surface-2);border-radius:0 0 var(--r-lg) var(--r-lg)}
+.m-foot .spacer{flex:1}
+.m-foot .btn{min-width:96px}
+
+/* «Выдвижная панель» теперь тоже окно, только большое и по центру.
+   Полоса шириной в треть экрана заставляла прокручивать карточку
+   клиента или ноды там, где рядом пустовала половина монитора: данных
+   в них много, и им нужна ширина, а не высота. */
+.drawer{position:relative;width:min(1180px, calc(100vw - var(--s-8)));
+  /* Карточку открывают, чтобы работать с данными, а их много: занимаем
+     почти всю высоту экрана. Раньше окно подгонялось под содержимое, и
+     на длинных вкладках (платежи, устройства, активность) приходилось
+     прокручивать там, где сверху и снизу пустовало по двести пикселей. */
+  height:min(94vh, 1060px);max-height:calc(100vh - var(--s-4));
+  display:flex;flex-direction:column;background:var(--surface-2);
+  border:1px solid var(--border-hi);border-radius:var(--r-lg);
+  box-shadow:var(--shadow-modal);opacity:0;
+  transform:translateY(14px) scale(.985);transition:all .24s cubic-bezier(.2,.7,.2,1)}
+.layer.in .drawer{transform:none;opacity:1}
+/* Размеры остаются осмысленными: не всякой карточке нужен весь экран. */
+.drawer.lg{width:min(1180px, calc(100vw - var(--s-8)))}
+.drawer.xl{width:min(1440px, calc(100vw - var(--s-8)))}
+/* Во весь экран. Нужно там, где содержимое — сплошной текст и лишняя
+   ширина сразу идёт в дело: в редакторе конфига потолок в 1440px
+   заставлял переносить строки и прокручивать по вертикали при пустых
+   полях по бокам. */
+.drawer.full{width:calc(100vw - var(--s-4));height:calc(100vh - var(--s-4));max-height:none}
+.drawer:not(.lg):not(.xl):not(.full){width:min(940px, calc(100vw - var(--s-8)))}
+.drawer .m-foot{border-radius:0 0 var(--r-lg) var(--r-lg)}
+/* Содержимое широкого окна раскладываем в две колонки: иначе поля
+   растягиваются на всю ширину и строка ввода длиной в метр читается
+   хуже короткой. */
+.drawer .m-body{padding:var(--s-5) var(--s-6)}
+.layer .modal, .layer .drawer{z-index:1}
+/* На узком экране окно занимает почти всё: держать поля в 420px, когда
+   ширины 700px, значит заставлять прокручивать там, где не нужно. */
+@media(max-width:760px){
+  .modal,.modal.lg,.modal.xl,.modal.sm{width:calc(100vw - var(--s-4));max-height:calc(100vh - 48px)}
+  .drawer,.drawer.lg,.drawer.xl,.drawer.full{width:calc(100vw - var(--s-4));max-height:calc(100vh - 48px);min-height:0}
+  .drawer.full{height:calc(100vh - 48px)}
+}
+
+/* ═══ TABS ═══ */
+.tabs{display:flex;gap:2px;border-bottom:1px solid var(--border);margin-bottom:16px}
+.tabs button{border:0;background:transparent;color:var(--text-3);font-size:12.5px;font-weight:600;padding:9px 14px;cursor:pointer;position:relative;font-family:var(--font-ui)}
+.tabs button:hover{color:var(--text-2)}
+.tabs button.on{color:var(--accent)}
+.tabs button.on::after{content:"";position:absolute;left:8px;right:8px;bottom:-1px;height:2px;border-radius:2px;background:var(--accent)}
+.tab-pane{display:none} .tab-pane.on{display:block}
+
+/* ═══ STEPPER ═══ */
+.stepper{display:flex;align-items:center;gap:0;margin-bottom:20px}
+.step{display:flex;align-items:center;gap:9px;font-size:12px;color:var(--text-3)}
+.step .s-num{width:24px;height:24px;border-radius:50%;border:1px solid var(--border-hi);display:flex;align-items:center;justify-content:center;font-family:var(--font-mono);font-size:11px;flex:none}
+.step.on{color:var(--text)} .step.on .s-num{background:var(--accent);border-color:var(--accent);color:var(--on-accent);font-weight:600}
+.step.done{color:var(--accent)} .step.done .s-num{background:var(--accent-dim);border-color:color-mix(in srgb, var(--accent) 40%, transparent);color:var(--accent)}
+.step-line{flex:1;height:1px;background:var(--border-hi);margin:0 12px;min-width:24px}
+
+/* ═══ CODE ═══ */
+.code{background:var(--code-bg);border:1px solid var(--border);border-radius:10px;font-family:var(--font-mono);font-size:12px;line-height:1.65;color:var(--code-fg);overflow:auto;position:relative}
+.code pre{padding:14px 16px;white-space:pre;counter-reset:ln}
+/* Длинная команда в одну строку: раньше она обрезалась многоточием, и
+   было не видно, что именно копируешь. Переносим по словам целиком. */
+.code.wrap pre{white-space:pre-wrap;word-break:break-word}
+
+/* ── выбор страны ── */
+.cpick{position:relative}
+.cpick-in{display:flex;align-items:center;gap:8px;border:1px solid var(--border-hi);
+  border-radius:9px;background:var(--surface);padding:0 10px;transition:border-color .15s}
+.cpick-in:focus-within{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-dim)}
+.cpick-flag{font-size:16px;line-height:1;flex:none}
+.cpick-q{flex:1;border:0!important;background:transparent!important;padding:9px 0!important;
+  box-shadow:none!important;min-width:0}
+.cpick-q:focus{outline:0}
+.cpick-cc{flex:none;font-size:11.5px;color:var(--text-3);letter-spacing:.04em}
+.cpick-list{position:absolute;z-index:60;left:0;right:0;top:calc(100% + 4px);
+  max-height:264px;overflow-y:auto;background:var(--surface);border:1px solid var(--border-hi);
+  border-radius:10px;box-shadow:var(--shadow);padding:4px}
+.cpick-row{display:flex;align-items:center;gap:9px;width:100%;border:0;background:transparent;
+  padding:7px 9px;border-radius:7px;cursor:pointer;text-align:left;color:var(--text);font:inherit;
+  font-size:13px}
+.cpick-row .f{font-size:15px;line-height:1;flex:none}
+.cpick-row .n{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.cpick-row .c{font-size:11px;color:var(--text-3);flex:none}
+.cpick-row:hover,.cpick-row.on{background:var(--accent-dim);color:var(--accent)}
+.cpick-row.on .c{color:var(--accent)}
+.cpick-empty{padding:10px;font-size:12.5px;color:var(--text-3);text-align:center}
+
+/* Шаги установки: нумерованный список, где у каждого пункта заголовок
+   и своё содержимое (команда, пояснение). */
+.steps{list-style:none;counter-reset:st;margin:0;padding:0}
+.steps > li{counter-increment:st;position:relative;padding:0 0 18px 38px}
+.steps > li::before{content:counter(st);position:absolute;left:0;top:0;
+  width:26px;height:26px;border-radius:50%;display:grid;place-items:center;
+  background:var(--accent-dim);color:var(--accent);font-size:12.5px;font-weight:700}
+.steps > li:not(:last-child)::after{content:"";position:absolute;left:13px;top:30px;
+  bottom:6px;width:1px;background:var(--border)}
+.steps .steps-t{font-weight:600;font-size:13.5px;margin:4px 0 8px}
+.code.lined pre>span{display:block;counter-increment:ln;padding-left:38px;position:relative}
+.code.lined pre>span::before{content:counter(ln);position:absolute;left:0;width:26px;text-align:right;color:var(--code-dim)}
+.code .k{color:var(--info)} .code .s{color:var(--accent)} .code .n{color:var(--warn)} .code .c{color:var(--code-dim)}
+textarea.code-edit{width:100%;background:var(--code-bg);border:1px solid var(--border);border-radius:10px;font-family:var(--font-mono);font-size:12px;line-height:1.65;color:var(--code-fg);padding:14px 16px;outline:none;resize:vertical;tab-size:2}
+/* В полноэкранном слое поле занимает всю оставшуюся высоту: атрибут
+   rows задаёт её жёстко, и снизу оставалась пустая полоса, а конфиг
+   при этом прокручивался внутри маленького окошка. */
+.drawer.full .m-body{display:flex;flex-direction:column;min-height:0}
+.drawer.full textarea.code-edit{flex:1;min-height:0;resize:none}
+textarea.code-edit:focus{border-color:color-mix(in srgb, var(--accent) 35%, transparent)}
+.copy-block{display:flex;align-items:center;gap:10px;background:var(--surface-3);border:1px solid var(--border-hi);border-radius:9px;padding:9px 12px;font-family:var(--font-mono);font-size:12px;color:var(--text-2)}
+.copy-block .txt{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.copy-block button{border:0;background:transparent;color:var(--text-3);cursor:pointer;display:flex;padding:3px}
+.copy-block button:hover{color:var(--accent)}
+.copy-block button svg{width:14px;height:14px;stroke:currentColor}
+
+/* ═══ MENU (dropdown) ═══ */
+.menu{position:fixed;z-index:200;min-width:210px;background:var(--surface-3);border:1px solid var(--border-hi);border-radius:11px;box-shadow:var(--shadow-lift);padding:5px;opacity:0;transform:translateY(6px) scale(.98);transition:all .15s;pointer-events:none}
+.menu.in{opacity:1;transform:none;pointer-events:auto}
+.menu .mi{display:flex;align-items:center;gap:10px;padding:7.5px 11px;border-radius:7px;font-size:12.5px;font-weight:500;color:var(--text-2);cursor:pointer;user-select:none}
+.menu .mi svg{width:14px;height:14px;stroke:currentColor}
+.menu .mi:hover{background:var(--hover);color:var(--text)}
+.menu .mi.danger{color:var(--err-ink)} .menu .mi.danger:hover{background:color-mix(in srgb, var(--err) 10%, transparent)}
+.menu .sep{height:1px;background:var(--border);margin:5px 8px}
+.menu .m-title{font-size:10px;font-weight:600;letter-spacing:.12em;text-transform:uppercase;color:var(--text-3);padding:7px 11px 4px}
+
+/* ═══ TOASTS ═══ */
+.toasts{position:fixed;bottom:46px;right:20px;z-index:300;display:flex;flex-direction:column;gap:8px}
+.toast{display:flex;align-items:center;gap:10px;background:var(--surface-3);border:1px solid var(--border-hi);border-radius:11px;padding:11px 16px;font-size:12.5px;font-weight:500;box-shadow:var(--shadow-lift);opacity:0;transform:translateX(20px);transition:all .25s;max-width:360px}
+.toast.in{opacity:1;transform:none}
+.toast svg{width:15px;height:15px;flex:none}
+.toast.ok svg{stroke:var(--ok)} .toast.err svg{stroke:var(--err)} .toast.info svg{stroke:var(--info)}
+
+/* ═══ MISC ═══ */
+.empty{display:flex;flex-direction:column;align-items:center;gap:10px;padding:48px 20px;color:var(--text-3);text-align:center}
+.empty svg{width:36px;height:36px;stroke:var(--text-3);opacity:.6}
+.empty b{color:var(--text-2);font-size:13.5px}
+.empty span{font-size:12px;max-width:340px}
+.info-rows{display:flex;flex-direction:column}
+.info-row{display:flex;align-items:center;gap:14px;padding:9.5px 0;border-bottom:1px solid var(--border);font-size:12.5px}
+.info-row:last-child{border-bottom:0}
+.info-row .k{color:var(--text-3);width:170px;flex:none}
+.info-row .v{color:var(--text);font-weight:500;display:flex;align-items:center;gap:8px;flex-wrap:wrap;min-width:0}
+.info-row .v.mono{font-family:var(--font-mono);font-size:11.5px}
+/* Флаг страны. Эмодзи, а не двухбуквенный код: страна узнаётся с одного
+   взгляда, а «PL» и «PT» на бегу путаются. Код остаётся подсказкой. */
+.cc{width:28px;height:22px;border-radius:5px;background:var(--surface-3);border:1px solid var(--border-hi);
+  display:inline-flex;align-items:center;justify-content:center;font-size:14px;line-height:1;flex:none;
+  font-family:"Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",var(--font-mono)}
+.avatar-sm{width:26px;height:26px;border-radius:9px;flex:none;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:12px;background:var(--surface-4);border:1px solid var(--border-hi);color:var(--text-2)}
+.danger-zone{border:1px solid color-mix(in srgb, var(--err) 25%, transparent);background:color-mix(in srgb, var(--err) 4%, transparent);border-radius:var(--r-md);padding:14px 16px;margin-top:18px}
+.danger-zone h4{font-size:12px;color:var(--err-ink);margin-bottom:8px;display:flex;align-items:center;gap:7px}
+.danger-zone h4 svg{width:13px;height:13px;stroke:var(--err)}
+.accordion .acc-item{border:1px solid var(--border);border-radius:var(--r-md);margin-bottom:10px;overflow:hidden;background:var(--surface)}
+.accordion .acc-head{display:flex;align-items:center;gap:11px;padding:12px 16px;cursor:pointer;user-select:none;font-size:13px;font-weight:600}
+.accordion .acc-head svg.chev{width:14px;height:14px;stroke:var(--text-3);margin-left:auto;transition:transform .2s}
+.accordion .acc-item.open .acc-head svg.chev{transform:rotate(180deg)}
+.accordion .acc-head .a-ic{width:28px;height:28px;border-radius:8px;background:var(--surface-3);display:flex;align-items:center;justify-content:center}
+.accordion .acc-head .a-ic svg{width:14px;height:14px;stroke:var(--text-2)}
+.accordion .acc-body{display:none;padding:4px 16px 16px;border-top:1px solid var(--border)}
+.accordion .acc-item.open .acc-body{display:block}
+.qr-box{width:216px;height:216px;margin:0 auto;background:#fff;border-radius:14px;padding:12px;display:flex;align-items:center;justify-content:center}
+.qr-box canvas{width:100%;height:100%;image-rendering:pixelated}
+.tag-pill{color:var(--violet-ink);display:inline-flex;font-family:var(--font-mono);font-size:10.5px;letter-spacing:.06em;padding:2px 9px;border-radius:6px;background:color-mix(in srgb, var(--violet) 12%, transparent);color:var(--violet);border:1px solid color-mix(in srgb, var(--violet) 25%, transparent)}
+.spin{animation:spin 1s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.loader-box{display:flex;flex-direction:column;align-items:center;gap:14px;padding:34px 20px}
+.loader-box .ring{width:40px;height:40px;border-radius:50%;border:3px solid var(--surface-4);border-top-color:var(--accent);animation:spin .9s linear infinite}
+.console{background:var(--code-bg);border:1px solid var(--border);border-radius:10px;font-family:var(--font-mono);font-size:11.5px;line-height:1.7;color:var(--code-fg);padding:14px 16px;min-height:140px;max-height:260px;overflow-y:auto;white-space:pre-wrap}
+.console .dim{color:var(--code-dim)} .console .e{color:var(--err)} .console .w{color:var(--warn)}
+.heat{display:inline-block;width:100%;text-align:right;padding:4px 8px;border-radius:6px;font-family:var(--font-mono);font-size:11.5px}
+.link{color:var(--info);cursor:pointer;text-decoration:none}
+.link:hover{text-decoration:underline}
+/* Двухколоночная форма. Поле-сирота в конце растягиваем на обе колонки:
+   одинокая ячейка слева и пустота справа выглядят как недоделанная
+   вёрстка, хотя это просто нечётное число полей. */
+.two-col{display:grid;grid-template-columns:1fr 1fr;gap:0 var(--s-6)}
+.two-col>*:last-child:nth-child(odd){grid-column:1 / -1}
+.two-col>.no-span{grid-column:auto}
+@media(max-width:760px){.two-col{grid-template-columns:1fr}}
+
+/* auth */
+.auth-card{width:400px;max-width:calc(100vw - 40px);background:var(--surface);border:1px solid var(--border-hi);border-radius:20px;padding:34px 32px;position:relative;z-index:1}
+.auth-card .logo{justify-content:center;padding-bottom:22px;cursor:default}
+
+@media (prefers-reduced-motion: reduce){*,*::before,*::after{animation:none!important;transition:none!important}}
+
+/* ── Строка ноды ───────────────────────────────────────────────
+   Отдельный блок, а не строка таблицы: рабочую ноду от нерабочей
+   нужно отличать не читая, поэтому состояние задаёт цвет левой
+   кромки и подложки.
+
+   Состояний три, и путать их нельзя: «выключена администратором» —
+   штатная ситуация, а «не выходит на связь» — авария, к которой
+   надо идти прямо сейчас. */
+.node-list{display:flex;flex-direction:column;gap:8px}
+.node-row{position:relative;padding:12px 16px 12px 20px;border-radius:var(--r-md);
+  border:1px solid var(--border);background:var(--surface);cursor:pointer;
+  box-shadow:var(--shadow);transition:background .12s,border-color .12s}
+.node-row::before{content:"";position:absolute;left:0;top:0;bottom:0;width:3px;
+  border-radius:var(--r-md) 0 0 var(--r-md)}
+
+.node-row.is-on{border-color:color-mix(in srgb, var(--ok) 28%, transparent);background:linear-gradient(90deg,color-mix(in srgb, var(--ok) 5%, transparent),transparent 45%),var(--surface)}
+.node-row.is-on::before{background:var(--ok)}
+.node-row.is-on:hover{border-color:color-mix(in srgb, var(--ok) 45%, transparent)}
+
+.node-row.is-off{border-color:color-mix(in srgb, var(--err) 32%, transparent);background:linear-gradient(90deg,color-mix(in srgb, var(--err) 6%, transparent),transparent 45%),var(--surface)}
+.node-row.is-off::before{background:var(--err)}
+.node-row.is-off:hover{border-color:color-mix(in srgb, var(--err) 50%, transparent)}
+
+/* Выключенная — приглушена целиком: она не сломана, на неё просто
+   не нужно смотреть. */
+.node-row.is-muted{opacity:.62}
+.node-row.is-muted::before{background:var(--text-3)}
+.node-row.is-muted:hover{opacity:.85}
+
+.nr-head{display:flex;align-items:center;gap:10px;min-width:0}
+.nr-state{display:inline-flex;align-items:center;justify-content:center;width:26px;height:26px;
+  border-radius:8px;flex:none}
+.nr-state.on{background:color-mix(in srgb, var(--ok) 16%, transparent);color:var(--ok-ink);box-shadow:0 0 0 1px color-mix(in srgb, var(--ok) 30%, transparent)}
+.nr-state.off{background:color-mix(in srgb, var(--err) 16%, transparent);color:var(--err-ink);box-shadow:0 0 0 1px color-mix(in srgb, var(--err) 32%, transparent)}
+.nr-state.muted{background:var(--surface-3);color:var(--text-3)}
+.nr-online{min-width:58px;justify-content:center}
+.nr-name{font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:230px}
+.nr-addr{font-size:11.5px;color:var(--text-2);white-space:nowrap}
+.nr-traffic{margin-left:auto;text-align:right;flex:none;display:flex;flex-direction:column;gap:1px}
+.nr-traffic .num{font-size:13px;font-weight:600}
+.nr-traffic .sub-note{font-size:10px}
+.nr-meta{display:flex;flex-direction:column;gap:2px;align-items:flex-end;flex:none;
+  font-size:10.5px;color:var(--text-2);white-space:nowrap}
+.nr-meta span{display:inline-flex;align-items:center;gap:4px}
+.nr-sub{display:flex;align-items:center;gap:14px;margin-top:8px;padding-left:36px;
+  font-size:11.5px;color:var(--text-2);flex-wrap:wrap}
+.nr-sub .mono{display:inline-flex;align-items:center;gap:4px}
+.nr-cpu{display:inline-flex;align-items:center;gap:7px;min-width:150px}
+.nr-cpu .label{font-size:9.5px}
+.nr-cpu .num{font-size:11px;min-width:34px;text-align:right}
+.progress.mini{height:4px;width:70px;flex:none}
+.nr-dl{color:var(--accent)}
+.nr-ul{color:var(--info)}
+.stat-ic{display:inline-flex;align-items:center;justify-content:center;width:34px;height:34px;
+  border-radius:10px;background:var(--surface-3);color:var(--text-2);flex:none}
+.stat-ic.err{background:color-mix(in srgb, var(--err) 12%, transparent);color:var(--err)}
+
+/* Системная панель в редакторе ноды: то, что нельзя поменять,
+   но по чему принимают решение — какой сервер, сколько памяти,
+   давно ли поднят. */
+.sys-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.sys-cell{background:var(--surface-2);border:1px solid var(--border);border-radius:10px;padding:10px 12px}
+.sys-cell .label{font-size:9.5px;margin-bottom:3px}
+.sys-cell .v{font-size:12.5px;font-weight:600}
+.sys-cell .v.mono{font-size:11.5px;font-weight:500;word-break:break-word}
+@media (max-width:900px){ .nr-meta,.nr-addr{display:none} .nr-sub{padding-left:0} }
+
+/* ── Цвет как признак смысла ───────────────────────────────────
+   Один показатель — один цвет во всей панели: клиенты всегда
+   зелёные, трафик всегда фиолетовый. Тогда взгляд находит нужное
+   число по цвету, не читая подпись. */
+.stat-ic.t-ok{background:color-mix(in srgb, var(--ok) 14%, transparent);color:var(--ok)}
+.stat-ic.t-cyan{background:color-mix(in srgb, var(--cyan) 14%, transparent);color:var(--cyan)}
+.stat-ic.t-info{background:color-mix(in srgb, var(--info) 14%, transparent);color:var(--info)}
+.stat-ic.t-violet{background:color-mix(in srgb, var(--violet) 14%, transparent);color:var(--violet)}
+.stat-ic.t-warn{background:color-mix(in srgb, var(--warn) 14%, transparent);color:var(--warn)}
+.stat-ic.t-pink{background:color-mix(in srgb, var(--pink) 14%, transparent);color:var(--pink)}
+.stat-ic.err{background:color-mix(in srgb, var(--err) 16%, transparent);color:var(--err)}
+
+/* Карточка должна читаться как отдельный предмет, а не как участок
+   фона: своя поверхность, граница и мягкая тень под ней. */
+.card{box-shadow:var(--shadow)}
+.card::after{content:"";position:absolute;inset:0 0 auto;height:1px;border-radius:var(--r-lg) var(--r-lg) 0 0;
+  background:linear-gradient(90deg,transparent,var(--border),transparent);pointer-events:none}
+
+/* Боковое меню отдельным тоном — граница рабочей области видна без
+   линии-разделителя. */
+aside,.sidebar{background:var(--sidebar)}
+.nav-title{color:var(--text-3);border-top:1px solid var(--border);padding-top:12px;margin-top:4px}
+.nav-group:first-child .nav-title{border-top:0;padding-top:0}
+
+/* Значки статуса: фон плотнее и с обводкой, иначе на тёмной
+   поверхности они выглядят серыми пятнами. */
+.bdg{border:1px solid transparent}
+.bdg.ok{background:color-mix(in srgb, var(--ok) 16%, transparent);border-color:color-mix(in srgb, var(--ok) 28%, transparent)}
+.bdg.warn{background:color-mix(in srgb, var(--warn) 16%, transparent);border-color:color-mix(in srgb, var(--warn) 30%, transparent)}
+.bdg.err{background:color-mix(in srgb, var(--err) 16%, transparent);border-color:color-mix(in srgb, var(--err) 30%, transparent)}
+.bdg.info{background:color-mix(in srgb, var(--info) 16%, transparent);border-color:color-mix(in srgb, var(--info) 30%, transparent);color:var(--info)}
+.bdg.accent{background:var(--accent-dim);border-color:color-mix(in srgb, var(--accent) 30%, transparent);color:var(--accent)}
+.bdg.neutral{background:var(--surface-3);border-color:var(--border-hi);color:var(--text-2)}
+
+/* Строки таблиц: чередование и заметная подсветка под курсором —
+   на длинном списке взгляд иначе теряет строку. */
+.tbl tbody tr:nth-child(even){background:var(--hover)}
+.tbl tbody tr:hover{background:var(--surface-2)}
+.tbl thead th{background:var(--surface-2);color:var(--text-2)}
+
+.chip{background:var(--surface-3);border:1px solid var(--border);color:var(--text-2)}
+.chip.accent{background:var(--accent-dim);border-color:color-mix(in srgb, var(--accent) 25%, transparent);color:var(--accent)}
+.inp{background:var(--surface-2);border-color:var(--border-hi)}
+.inp:focus{border-color:color-mix(in srgb, var(--accent) 45%, transparent);box-shadow:0 0 0 3px var(--accent-dim)}
+
+/* Внутри строки ноды тоже нужен цвет: иначе десять одинаково серых
+   чисел, и какое из них важное — непонятно. */
+.nr-online{background:color-mix(in srgb, var(--ok) 14%, transparent);border-color:color-mix(in srgb, var(--ok) 28%, transparent);color:var(--ok-ink)}
+/* Трафик — обычное число, а не цветное пятно: фиолетовый здесь ничего
+   не сообщал, а цвет в панели закреплён за смыслом. */
+.nr-traffic .num{color:var(--text)}
+.nr-state.ok{box-shadow:0 0 0 1px color-mix(in srgb, var(--ok) 25%, transparent)}
+.nr-state.err{box-shadow:0 0 0 1px color-mix(in srgb, var(--err) 30%, transparent)}
+.node-row .cc{background:var(--surface-3);color:var(--text);border-color:var(--border-hi)}
+.progress{background:var(--surface-3)}
+.progress i{background:var(--accent)}
+.progress i.warn{background:var(--warn)}
+.progress i.err{background:var(--err)}
+
+/* Рабочая область чуть светлее краёв: видно, где заканчивается меню
+   и начинается содержимое, без жирной линии между ними. */
+main{background:linear-gradient(180deg, var(--hover), transparent 320px)}
+
+/* Значок провайдера: логотип или цветная монограмма. */
+.pv-logo{border-radius:50%;object-fit:cover;flex:none;background:var(--surface-3)}
+.pv-mono{display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;
+  border-radius:50%;flex:none;font-size:10px;font-weight:700;line-height:1;
+  color:var(--pv);background:color-mix(in srgb, var(--pv) 18%, transparent);
+  border:1px solid color-mix(in srgb, var(--pv) 40%, transparent)}
+.pv-badge{display:inline-flex;align-items:center;gap:6px;padding:3px 9px 3px 4px;border-radius:20px;
+  background:var(--surface-3);border:1px solid var(--border);font-size:11px;font-weight:600;
+  color:var(--text-2);white-space:nowrap}
+.pv-badge .pv-logo,.pv-badge .pv-mono{width:16px;height:16px;font-size:9px}
+
+/* ═══ ГРАФИКИ ═══
+   Оформление здесь, а не в charts.js: цвета и отступы у графиков те же,
+   что у остальной панели, и меняться должны вместе с ней. */
+.chart{position:relative;width:100%;display:flex;flex-direction:column}
+
+/* Поле построения. Сетка и подписи лежат разметкой поверх SVG: внутри
+   растянутого SVG текст и линии масштабируются вместе с ним и выходят
+   раздутыми. */
+/* Полоса слева под подписи оси. Ширину задаёт сам график по самой
+   длинной подписи — фиксированная не вмещала «$300.00», и он вылезал
+   за карточку. */
+.ch-plot{position:relative;flex:1;min-height:0;margin-left:var(--ch-pad,4ch)}
+.ch-svg{position:absolute;inset:0;width:100%;height:100%;display:block;
+  /* Глобальное svg{stroke:currentColor} иначе обводит всё внутри,
+     включая заливку области, — получались чёрные контуры. */
+  stroke:none}
+
+.ch-row{position:absolute;left:0;right:0;height:0;border-top:1px dashed var(--border);pointer-events:none}
+.ch-ylab{position:absolute;right:calc(100% + 6px);top:-0.6em;
+  font:500 var(--t-xs)/1 var(--font-mono);color:var(--text-3);white-space:nowrap}
+
+.ch-axis{position:relative;height:16px;margin:var(--s-1) 0 0 var(--ch-pad,4ch)}
+.ch-xlab{position:absolute;transform:translateX(-50%);
+  font:500 var(--t-xs)/1 var(--font-mono);color:var(--text-3);white-space:nowrap}
+/* Подписи дат по краям: по центру первая уходит влево за поле, а
+   последняя — вправо за карточку. */
+.ch-xlab-first{transform:none}
+.ch-xlab-last{transform:translateX(-100%)}
+
+
+/* Полосы наведения. Прозрачные, во всю высоту: попасть мышью в линию
+   толщиной два пикселя нельзя, а в полосу — всегда. */
+.ch-hits{position:absolute;inset:0}
+.ch-hit{position:absolute;top:0;bottom:0;transform:translateX(-50%);display:block;
+  background:transparent;transition:background .12s;cursor:crosshair}
+.ch-hit:hover{background:color-mix(in srgb, var(--ch,var(--accent)) 8%, transparent)}
+
+.ch-dot{position:absolute;width:9px;height:9px;border-radius:50%;
+  background:var(--ch,var(--accent));border:2px solid var(--surface);
+  transform:translate(-50%,-50%);opacity:0;transition:opacity .12s;pointer-events:none;
+  box-shadow:0 0 0 3px color-mix(in srgb, var(--ch,var(--accent)) 22%, transparent)}
+.ch-dot.on{opacity:1}
+
+.ch-tip{position:absolute;top:0;transform:translate(-50%,-115%);pointer-events:none;
+  background:var(--surface-4);border:1px solid var(--border-hi);border-radius:7px;
+  padding:4px 9px;font:600 var(--t-xs)/1.3 var(--font-mono);color:var(--text);
+  white-space:nowrap;opacity:0;transition:opacity .12s;box-shadow:var(--shadow-lift);z-index:2}
+.ch-tip.on{opacity:1}
+.ch-tip.edge-l{transform:translate(-8px,-115%)}
+.ch-tip.edge-r{transform:translate(calc(-100% + 8px),-115%)}
+
+.chart-empty{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:7px;
+  color:var(--text-3);font-size:var(--t-sm);border:1px dashed var(--border);border-radius:var(--r-md);
+  background:color-mix(in srgb, var(--surface-3) 45%, transparent)}
+.chart-empty svg{stroke:var(--text-3);opacity:.55}
+
+/* Та же беда, что у большого графика: глобальное svg{stroke:currentColor}
+   обводит заливку спарклайна чёрным. Обводку задаём только линии. */
+.spark{display:block;width:100%;height:30px;margin-top:auto;stroke:none}
+
+.donut{position:relative;flex:none}
+.donut svg{display:block;width:100%;height:100%}
+.ch-seg{transition:opacity .15s} .donut:hover .ch-seg{opacity:.5} .ch-seg:hover{opacity:1}
+.donut-mid{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1px;pointer-events:none}
+.donut-mid b{font-size:22px;font-weight:700;line-height:1}
+.donut-mid span{font-size:var(--t-xs);color:var(--text-3)}
+.donut-legend{display:flex;flex-direction:column;gap:7px;flex:1;min-width:0}
+.dl-row{display:flex;align-items:center;gap:8px;font-size:var(--t-sm)}
+.dl-row i{width:8px;height:8px;border-radius:3px;flex:none}
+.dl-row span{color:var(--text-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dl-row b{margin-left:auto;font-family:var(--font-mono);font-weight:600}
+
+.rank{display:flex;flex-direction:column;gap:9px}
+/* Подпись не должна съедать полосу: в узкой карточке от неё оставалось
+   шестьдесят пикселей, и сравнивать было нечего. */
+.rank-row{display:grid;grid-template-columns:minmax(0,116px) minmax(70px,1fr) auto;
+  align-items:center;gap:var(--s-2)}
+.rank-lbl{display:flex;align-items:center;gap:7px;font-size:var(--t-sm);color:var(--text-2);min-width:0}
+.rank-lbl span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.rank-bar{height:8px;border-radius:5px;background:var(--surface-3);overflow:hidden}
+.rank-bar i{display:block;height:100%;border-radius:5px;transition:width .4s cubic-bezier(.2,.7,.2,1)}
+.rank-val{font-size:var(--t-sm);color:var(--text);font-weight:600;white-space:nowrap}
+
+.heat{display:flex;flex-direction:column;gap:3px}
+.hm-row{display:flex;align-items:center;gap:3px}
+.hm-day{width:24px;font-size:9.5px;color:var(--text-3);flex:none}
+.hm-row i{flex:1;height:13px;border-radius:3px;display:block;min-width:0}
+.hm-axis{display:flex;justify-content:space-between;padding-left:27px;margin-top:3px;
+  font:500 9.5px var(--font-mono);color:var(--text-3)}
+
+/* ═══ КАРТОЧКА ПОКАЗАТЕЛЯ ═══
+   Одинаковый скелет у всех: подпись, число, пояснение, спарклайн. Пока
+   каждая карточка была устроена по-своему, ряд выглядел развалившимся —
+   у одной пусто снизу, у другой число вдвое крупнее соседнего. */
+.kpi{display:flex;flex-direction:column;min-height:126px;padding:var(--s-4) var(--s-4) var(--s-2)}
+.kpi-val{font-size:26px;font-weight:650;letter-spacing:-.02em;line-height:1.15;margin-top:var(--s-2)}
+.kpi-note{display:flex;align-items:center;gap:var(--s-2);flex-wrap:wrap;
+  font-size:var(--t-xs);color:var(--text-3);margin-top:var(--s-1);min-height:18px}
+.kpi .spark{margin-top:var(--s-2)}
+.bdg.sm{font-size:10px;padding:1.5px 7px}
+
+/* ═══ ЛЕНТА СОБЫТИЙ ═══ */
+.feed{display:flex;flex-direction:column;max-height:calc(100vh - 190px);overflow:hidden}
+.feed-head{display:flex;align-items:center;gap:var(--s-2);padding:var(--s-4) var(--s-4) var(--s-3);
+  border-bottom:1px solid var(--border);flex:none}
+.feed-head h3{font-size:var(--t-md);font-weight:600}
+.feed-head .live{display:inline-flex;align-items:center;gap:5px;margin-left:auto;
+  font:600 9.5px/1 var(--font-mono);letter-spacing:.14em;color:var(--err)}
+.feed-head .live svg{stroke:var(--err);animation:breathe 1.8s infinite}
+.feed-list{overflow-y:auto;flex:1}
+.feed-row{display:flex;gap:var(--s-3);padding:var(--s-3) var(--s-4);border-bottom:1px solid var(--border)}
+.feed-row:last-child{border-bottom:0}
+.feed-ic{width:30px;height:30px;border-radius:9px;flex:none;display:flex;align-items:center;justify-content:center}
+.feed-row b{font-size:var(--t-sm);font-weight:600;display:block;line-height:1.35}
+.feed-row p{font-size:var(--t-xs);color:var(--text-2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:1px}
+.feed-time{font-size:10px;color:var(--text-3);padding-top:2px;flex:none}
+.feed-actions{padding:var(--s-3);border-top:1px solid var(--border);
+  display:grid;grid-template-columns:1fr 1fr;gap:var(--s-2);flex:none}
+@media(max-width:1100px){
+  .grid[style*="2fr 1fr"]{grid-template-columns:1fr!important}
+  .feed{max-height:none;position:static!important}
+}
+
+/* Показатель в строке ноды: короткая подпись + значение. Подпись
+   приглушена, значение — основным цветом, поэтому строка читается
+   как таблица, а не как ряд чисел подряд. */
+.nr-stat{display:inline-flex;align-items:center;gap:5px;white-space:nowrap}
+.nr-stat .label{font:600 9px/1 var(--font-ui);letter-spacing:.1em;color:var(--text-3);text-transform:uppercase}
+.nr-stat .label svg{stroke:var(--text-3);width:10px;height:10px;display:block}
+.nr-stat .num{font-size:var(--t-xs);color:var(--text-2)}
+
+/* Высокое окно и короткая вкладка: чтобы форма не висела сверху с дырой
+   под собой, опасные действия уезжают к нижнему краю — там их и ищут,
+   и заодно они дальше от полей, которые правят чаще всего. */
+.drawer .m-body{display:flex;flex-direction:column}
+.drawer .m-body>.tab-pane.on{display:flex;flex-direction:column;flex:1;min-height:0}
+.drawer .danger-zone{margin-top:auto}
+
+/* ═══ ВЫБОР ЗАГОТОВКИ ПРОФИЛЯ ═══ */
+.preset-list{display:grid;grid-template-columns:1fr 1fr;gap:var(--s-2)}
+@media(max-width:760px){.preset-list{grid-template-columns:1fr}}
+.preset-card{align-items:flex-start;gap:var(--s-2);padding:var(--s-3);
+  border:1px solid var(--border);border-radius:var(--r-md);background:var(--surface);
+  transition:border-color .15s, background .15s}
+.preset-card:hover{border-color:var(--border-hi)}
+.preset-card.on{border-color:color-mix(in srgb, var(--accent) 45%, transparent);background:var(--accent-dim)}
+.preset-card b{display:block;font-size:var(--t-md);font-weight:600;line-height:1.3}
+.preset-desc{display:block;font-size:var(--t-xs);color:var(--text-3);margin-top:3px;line-height:1.45}
+
+/* Карточка, по которой можно нажать. Палец и лёгкий подъём — обещание,
+   что за ней что-то откроется; без них карточка выглядит справкой. */
+.card-click{cursor:pointer}
+.card-click:hover{border-color:var(--border-hi);box-shadow:var(--shadow)}
+.card-click:active{transform:translateY(1px)}
+
+/* ═══ ПЛИТКА КАРТОЧЕК ═══
+   Карточки одинаковой ширины, сколько бы их ни было: обычная сетка из
+   трёх колонок растягивала единственную карточку во весь экран. */
+.tile-grid{display:grid;gap:var(--s-3);
+  grid-template-columns:repeat(auto-fill, minmax(280px, 1fr))}
+
+/* Карточка сквада: шапка, две цифры мелким, состав чипами. */
+.sq-card{display:flex;flex-direction:column;gap:var(--s-3);padding:var(--s-3) var(--s-4)}
+.sq-head{display:flex;align-items:center;gap:var(--s-2);min-width:0}
+.sq-ic{background:color-mix(in srgb, var(--violet) 12%, transparent);
+  border-color:color-mix(in srgb, var(--violet) 30%, transparent);color:var(--violet-ink)}
+.sq-name{flex:1;min-width:0}
+.sq-name b{font-size:var(--t-md);font-weight:600;display:block;line-height:1.3;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sq-name .sub{margin-top:1px}
+.sq-meta{display:flex;gap:var(--s-4);font-size:var(--t-xs);color:var(--text-3)}
+.sq-meta span{display:inline-flex;align-items:center;gap:5px;font-family:var(--font-mono)}
+.sq-meta svg{stroke:var(--text-3)}
+.sq-inb{display:flex;gap:5px;flex-wrap:wrap}
+
+/* ── кнопка подсказки ── */
+.help-btn{flex:none;width:24px;height:24px;border-radius:50%;border:1px solid var(--border-hi);
+  background:var(--surface);color:var(--text-3);font:inherit;font-size:13px;font-weight:700;
+  line-height:1;cursor:pointer;display:grid;place-items:center;align-self:center}
+.help-btn:hover{border-color:var(--accent);color:var(--accent);background:var(--accent-dim)}
+.btn.sm[data-help-cfg]{width:30px;padding:0;justify-content:center;font-weight:700}
+
+/* Строка списка ссылок: подпись, адрес и кнопка «убрать». */
+.doc-row{display:grid;grid-template-columns:1fr 1.6fr auto;gap:8px;margin-bottom:8px;
+  align-items:center}
+.doc-row .btn.icon-only{width:32px;height:32px;padding:6px;color:var(--text-3)}
+.doc-row .btn.icon-only:hover{color:var(--err);border-color:var(--err)}
+@media(max-width:900px){ .doc-row{grid-template-columns:1fr auto} .doc-row .mono{grid-column:1/-1} }
+
+/* ═══ РЕДАКТОР КОНФИГА ═══
+   Отдельная страница, а не слой поверх: конфиг правят подолгу, с
+   переключением на другие вкладки и обратно, и всплывающее окно для
+   такой работы тесно. Раскладка на две колонки — текст и разбор рядом:
+   ошибку видно, не закрывая редактор. */
+.cfg-page{display:flex;flex-direction:column;gap:var(--s-3);
+  /* Высота считается от окна: редактор должен занимать всё, что есть,
+     иначе снизу остаётся пустая полоса, а текст прокручивается в
+     маленьком окошке посреди экрана. */
+  height:calc(100vh - 132px);min-height:420px}
+.cfg-bar{display:flex;align-items:center;gap:var(--s-2);flex-wrap:wrap}
+.cfg-main{display:grid;grid-template-columns:minmax(0,1fr) 300px;gap:var(--s-3);
+  flex:1;min-height:0}
+@media(max-width:1180px){ .cfg-main{grid-template-columns:minmax(0,1fr)} .cfg-side{display:none} }
+
+/* Само поле. Подсветка лежит слоем под прозрачным textarea — оба
+   набраны одним шрифтом с одинаковыми отступами, иначе символы
+   разъезжаются и подсветка перестаёт совпадать с текстом. */
+.cfg-edit{position:relative;display:flex;min-height:0;background:var(--code-bg);
+  border:1px solid var(--border);border-radius:12px;overflow:hidden}
+.cfg-edit:focus-within{border-color:color-mix(in srgb, var(--accent) 45%, transparent)}
+.cfg-gutter{flex:none;padding:14px 10px 14px 14px;text-align:right;overflow:hidden;
+  color:var(--code-dim);background:color-mix(in srgb, #000 14%, var(--code-bg));
+  border-right:1px solid color-mix(in srgb, #fff 7%, transparent);
+  user-select:none}
+.cfg-gutter b{display:block;font-weight:400;cursor:pointer}
+.cfg-gutter b.bad{color:var(--err);font-weight:700}
+.cfg-wrap{position:relative;flex:1;min-width:0;overflow:hidden}
+.cfg-hl,.cfg-area{
+  position:absolute;inset:0;margin:0;border:0;padding:14px 16px;
+  font-family:var(--font-mono);font-size:12.5px;line-height:1.65;
+  white-space:pre;overflow:auto;tab-size:2}
+.cfg-hl{pointer-events:none;color:var(--code-fg);z-index:0}
+.cfg-area{background:transparent;color:transparent;caret-color:var(--code-fg);
+  resize:none;outline:none;z-index:1;-webkit-text-fill-color:transparent}
+.cfg-area::selection{background:color-mix(in srgb, var(--accent) 42%, transparent)}
+.cfg-gutter,.cfg-hl,.cfg-area{font-family:var(--font-mono);font-size:12.5px;line-height:1.65}
+.cfg-hl .k{color:#7DD3FC} .cfg-hl .s{color:#A5B4FC}
+.cfg-hl .n{color:#FCD34D} .cfg-hl .b{color:#F0ABFC} .cfg-hl .p{color:var(--code-dim)}
+/* Строка с ошибкой разбора — подложкой, чтобы её было видно и в
+   прокрутке, и в свёрнутом состоянии панели разбора. */
+.cfg-hl i.bad{display:block;background:color-mix(in srgb, var(--err) 22%, transparent);
+  font-style:normal;border-radius:3px}
+
+/* Правая колонка: состав конфига и результат проверки. */
+.cfg-side{display:flex;flex-direction:column;gap:var(--s-3);min-height:0;overflow-y:auto}
+.cfg-box{background:var(--surface-2);border:1px solid var(--border);border-radius:12px;
+  padding:var(--s-3) var(--s-4)}
+.cfg-box h4{font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;
+  color:var(--text-3);margin:0 0 10px}
+.cfg-inb{display:flex;align-items:center;gap:8px;padding:7px 8px;border-radius:8px;
+  cursor:pointer;font-size:12px}
+.cfg-inb:hover{background:var(--hover)}
+.cfg-inb .t{font-family:var(--font-mono);font-weight:600;flex:1;overflow:hidden;
+  text-overflow:ellipsis;white-space:nowrap}
+.cfg-inb .pt{color:var(--text-3);font-variant-numeric:tabular-nums}
+.cfg-note{font-size:12px;color:var(--text-3);line-height:1.5}
+.cfg-state{border-radius:10px;padding:10px 12px;font-size:12.5px;line-height:1.5}
+.cfg-state.ok{background:color-mix(in srgb, var(--ok) 10%, transparent);
+  border:1px solid color-mix(in srgb, var(--ok) 30%, transparent);color:var(--ok-ink)}
+.cfg-state.err{background:color-mix(in srgb, var(--err) 10%, transparent);
+  border:1px solid color-mix(in srgb, var(--err) 30%, transparent);color:var(--err-ink)}
+.cfg-state.warn{background:color-mix(in srgb, var(--warn) 10%, transparent);
+  border:1px solid color-mix(in srgb, var(--warn) 30%, transparent);color:var(--warn-ink)}
+.cfg-state .line{cursor:pointer;text-decoration:underline;text-underline-offset:2px}
+
+/* ═══════════════════════════════════════════════════════════════════
+   ЖИВОСТЬ: язык мини-приложения в панели
+
+   Кабинет клиента и панель — один продукт, а выглядели по-разному:
+   там градиентный акцент, мягкие тени и крупные скругления, здесь —
+   ровная заливка и рамки. Переносим оттуда приёмы, не трогая плотность:
+   списки нод и таблицы остаются такими же ёмкими, меняется подача.
+
+   Ничего не переопределяем «сверху вниз» — только точечно там, где
+   поверхность несёт смысл: главное действие, показатели, состояние ноды.
+   ═══════════════════════════════════════════════════════════════════ */
+
+:root{
+  --grad: linear-gradient(135deg, var(--primary) 0%, #2C4A7C 45%, var(--accent) 100%);
+  --grad-soft: linear-gradient(135deg,
+    color-mix(in srgb, var(--primary) 12%, transparent),
+    color-mix(in srgb, var(--accent) 14%, transparent));
+  --lift: 0 2px 6px rgba(15,23,42,.06), 0 16px 36px -18px var(--accent-glow);
+  /* Отдельный градиент для текста. Тот, что годится заливкой кнопки,
+     в заголовке на тёмном фоне даёт тёмные буквы на тёмном — заголовок
+     раздела пропадает совсем. */
+  --grad-text: linear-gradient(120deg, var(--primary) 0%, var(--accent) 100%);
+}
+[data-theme="dark"]{
+  /* Светлый градиент, а не тёмный. В тёмной теме главная кнопка по
+     замыслу яркая, а надпись на ней тёмная (--on-primary почти чёрный).
+     Тёмно-синий градиент оставлял эту надпись на тёмном фоне — кнопку
+     было не прочитать вовсе. */
+  --grad: linear-gradient(135deg, var(--primary) 0%, #38BDF8 55%, #67E8F9 100%);
+  --lift: 0 2px 8px rgba(0,0,0,.5), 0 18px 40px -20px rgba(8,145,178,.45);
+  --grad-text: linear-gradient(120deg, #EAF2FB 0%, #5FD0EC 100%);
+}
+
+/* ── появление ──
+   Тот же приём, что в кабинете: содержимое всплывает снизу. Экран
+   перестаёт «моргать» целиком при каждом переходе. */
+@keyframes всплыть{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+.page-head,
+.grid > .card,
+.node-row,
+.cfg-page{animation:всплыть .28s cubic-bezier(.2,.7,.3,1) both}
+/* Лесенкой, но недолго: на списке в полсотни строк ждать нечего. */
+.grid > .card:nth-child(2){animation-delay:.03s}
+.grid > .card:nth-child(3){animation-delay:.06s}
+.grid > .card:nth-child(4){animation-delay:.09s}
+.node-row:nth-child(2){animation-delay:.03s}
+.node-row:nth-child(3){animation-delay:.06s}
+.node-row:nth-child(4){animation-delay:.09s}
+@media (prefers-reduced-motion: reduce){
+  .page-head,.grid > .card,.node-row,.cfg-page{animation:none}
+}
+
+/* ── главное действие ──
+   Градиент вместо плоской заливки — как кнопка «Подключиться» в кабинете. */
+.btn.primary{background:var(--grad);border-color:transparent;box-shadow:var(--lift)}
+.btn.primary:hover{background:var(--grad);border-color:transparent;
+  filter:brightness(1.08);box-shadow:0 4px 10px rgba(15,23,42,.1), 0 20px 44px -18px var(--accent-glow)}
+.btn.primary:active{transform:translateY(1px)}
+
+/* ── карточки ──
+   Мягче: подсветка сверху вместо серой линии, подъём при наведении. */
+.card{border-radius:var(--r-lg);transition:transform .18s cubic-bezier(.2,.7,.3,1),
+  border-color .2s, box-shadow .2s}
+.card::after{background:linear-gradient(90deg,transparent,
+  color-mix(in srgb, var(--accent) 40%, transparent),transparent)}
+.grid > .card:hover{transform:translateY(-2px);box-shadow:var(--lift)}
+
+/* ── плитки показателей ──
+   Значок в градиентной подложке: ряд из восьми одинаково-серых плиток
+   и был тем самым «скучно». */
+.stat-ic{background:var(--grad-soft);color:var(--accent);
+  box-shadow:inset 0 0 0 1px color-mix(in srgb, var(--accent) 18%, transparent)}
+.stat-ic.t-ok{background:color-mix(in srgb, var(--ok) var(--tint), transparent);color:var(--ok);
+  box-shadow:inset 0 0 0 1px color-mix(in srgb, var(--ok) 22%, transparent)}
+.stat-ic.t-violet{background:color-mix(in srgb, var(--violet) var(--tint), transparent);color:var(--violet);
+  box-shadow:inset 0 0 0 1px color-mix(in srgb, var(--violet) 22%, transparent)}
+.stat-ic.t-info{background:color-mix(in srgb, var(--info) var(--tint), transparent);color:var(--info);
+  box-shadow:inset 0 0 0 1px color-mix(in srgb, var(--info) 22%, transparent)}
+.stat-ic.t-pink{background:color-mix(in srgb, var(--pink) var(--tint), transparent);color:var(--pink);
+  box-shadow:inset 0 0 0 1px color-mix(in srgb, var(--pink) 22%, transparent)}
+.stat-ic.t-warn{background:color-mix(in srgb, var(--warn) var(--tint), transparent);color:var(--warn);
+  box-shadow:inset 0 0 0 1px color-mix(in srgb, var(--warn) 22%, transparent)}
+.stat-ic.t-cyan{background:var(--grad-soft);color:var(--accent);
+  box-shadow:inset 0 0 0 1px color-mix(in srgb, var(--accent) 20%, transparent)}
+.stat-ic.err{box-shadow:inset 0 0 0 1px color-mix(in srgb, var(--err) 25%, transparent)}
+
+/* ── значок сущности ──
+   Профили, сквады, тарифы: вместо серого квадрата — акцентная плашка. */
+.avatar-sm{border-radius:10px}
+.card .avatar-sm{background:var(--grad-soft);
+  border-color:color-mix(in srgb, var(--accent) 26%, transparent);color:var(--accent)}
+
+/* ── строка ноды ──
+   Полоса состояния слева была ровной и глухой. Живая нода теперь
+   дышит: точка пульсирует, как в кабинете у активной подписки. */
+.node-row{transition:transform .18s cubic-bezier(.2,.7,.3,1), border-color .2s, box-shadow .2s}
+.node-row:hover{transform:translateX(2px)}
+.node-row::before{width:4px;border-radius:0 3px 3px 0}
+.node-row.is-on::before{background:linear-gradient(180deg,var(--ok),color-mix(in srgb,var(--ok) 55%,var(--accent)))}
+.node-row.is-off::before{background:linear-gradient(180deg,var(--err),color-mix(in srgb,var(--err) 60%,var(--warn)))}
+
+@keyframes дышать{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.5;transform:scale(.86)}}
+.nr-state.on svg{animation:дышать 2.6s ease-in-out infinite}
+@media (prefers-reduced-motion: reduce){ .nr-state.on svg{animation:none} }
+
+/* ── шапка страницы ──
+   Заголовок раздела акцентирован тем же градиентом, что и кнопка. */
+.page-head h1{background:var(--grad-text);-webkit-background-clip:text;background-clip:text;
+  color:transparent;width:fit-content}
+
+/* ── фон рабочей области ──
+   Тот же тёплый отсвет сверху, что в кабинете. Сплошная белая простыня
+   и была главной причиной «скучно»: цвет появлялся только там, где его
+   ставили руками. */
+.main{position:relative}
+.main::before{content:"";position:absolute;inset:0 0 auto;height:340px;pointer-events:none;
+  z-index:0;
+  background:radial-gradient(120% 100% at 50% -30%,
+    color-mix(in srgb, var(--accent) 9%, transparent) 0%, transparent 62%)}
+.main > *{position:relative;z-index:1}
+
+/* ── плитки показателей ──
+   Число крупнее и своим цветом: ряд одинаково-серых цифр не читается
+   с одного взгляда, а именно за этим на него и смотрят. */
+.grid > .card .num{letter-spacing:-.02em}
+.card:has(.stat-ic.t-ok) .num{color:var(--ok-ink)}
+.card:has(.stat-ic.err) .num{color:var(--err-ink)}
+.card:has(.stat-ic.t-violet) .num{color:var(--violet-ink)}
+.card:has(.stat-ic.t-info) .num{color:var(--info-ink)}
+.card:has(.stat-ic.t-warn) .num{color:var(--warn-ink)}
+
+/* ── метки профиля и инбаунда в строке ноды ──
+   Они несут смысл (какой конфиг раскатан), а выглядели служебной
+   серой пометкой наравне с адресом. */
+.node-row .chip{background:var(--grad-soft);
+  border-color:color-mix(in srgb, var(--accent) 22%, transparent);
+  color:color-mix(in srgb, var(--accent) 85%, var(--text))}
+
+/* ── список профилей ──
+   Была сетка из трёх карточек: на широком экране каждая растягивалась
+   на треть ширины ради четырёх строк содержимого. Профилей на установку
+   единицы, и знать про каждый нужно одно и то же — строка подходит
+   лучше карточки. */
+.prof-list{display:flex;flex-direction:column;gap:8px}
+.prof-row{display:flex;align-items:center;gap:var(--s-4);
+  padding:11px 14px 11px 16px;border-radius:var(--r-md);
+  background:var(--surface);border:1px solid var(--border);cursor:pointer;
+  position:relative;overflow:hidden;
+  transition:transform .18s cubic-bezier(.2,.7,.3,1), border-color .2s, box-shadow .2s}
+.prof-row::before{content:"";position:absolute;left:0;top:0;bottom:0;width:4px;
+  border-radius:0 3px 3px 0;background:var(--grad)}
+.prof-row:hover{transform:translateX(2px);border-color:var(--border-hi);box-shadow:var(--shadow)}
+
+.pr-main{display:flex;align-items:center;gap:var(--s-3);flex:1;min-width:0}
+.pr-ic{display:inline-flex;align-items:center;justify-content:center;width:32px;height:32px;
+  border-radius:10px;flex:none;background:var(--grad-soft);color:var(--accent);
+  box-shadow:inset 0 0 0 1px color-mix(in srgb, var(--accent) 20%, transparent)}
+.pr-name{min-width:0;flex:none;width:190px}
+.pr-name b{font-size:13.5px;display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pr-name .sub-note{font-size:10.5px}
+
+/* Инбаунды профиля — главное, ради чего в список смотрят. */
+.pr-parts{display:flex;gap:6px;flex-wrap:wrap;min-width:0;flex:1}
+.pp{display:inline-flex;align-items:baseline;gap:6px;padding:3px 9px;border-radius:7px;
+  background:var(--surface-3);border:1px solid var(--border);font-size:11px;cursor:pointer;
+  max-width:100%;transition:border-color .16s}
+.pp:hover{border-color:color-mix(in srgb, var(--accent) 40%, transparent)}
+.pp b{font-size:11px;font-weight:650;color:var(--text)}
+.pp span{color:var(--text-3)}
+.pp i{font-style:normal;font-family:var(--font-mono);color:var(--accent)}
+.pp.empty-pp{color:var(--warn-ink);border-color:color-mix(in srgb, var(--warn) 30%, transparent);
+  background:color-mix(in srgb, var(--warn) 8%, transparent);cursor:default}
+
+.pr-side{display:flex;align-items:center;gap:var(--s-2);flex:none}
+.pr-nodes{display:inline-flex;align-items:center;gap:6px;font-size:11.5px;color:var(--text-2);
+  padding:4px 10px;border-radius:7px;background:var(--surface-3);border:1px solid var(--border);
+  cursor:pointer;max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pr-nodes:hover{border-color:var(--border-hi);color:var(--text)}
+.pr-nodes.none{color:var(--text-3);border-style:dashed}
+
+@media(max-width:1100px){
+  .prof-row{flex-wrap:wrap}
+  .pr-name{width:auto;flex:1}
+  .pr-parts{flex-basis:100%;order:3}
+}
+
+/* ── искра трафика в строке ноды ──
+   Сутки по часам. Нужна не точность, а форма: провал или всплеск видно
+   боковым зрением, не открывая раздел статистики. */
+.nr-spark{flex:none;opacity:.85;margin-left:2px}
+.nr-spark rect{fill:color-mix(in srgb, var(--accent) 55%, transparent)}
+.node-row.is-off .nr-spark rect{fill:color-mix(in srgb, var(--err) 45%, transparent)}
+.node-row:hover .nr-spark{opacity:1}
+
+/* Общая оболочка: читаемая рабочая область и одинаковое поведение окон. */
+.page-head{align-items:flex-start;gap:20px;flex-wrap:wrap}
+.page-head>div:first-child{flex:1;min-width:220px}
+.page-head h1{background:none;color:var(--text);font-size:26px;letter-spacing:-.025em;line-height:1.2}
+.page-head .desc{max-width:76ch;margin-top:8px;line-height:1.6}
+.page-head .section-help{flex:none;white-space:nowrap}
+.btn,.icon-btn,.tab,.mi{transition:background .18s,color .18s,border-color .18s,transform .18s}
+:where(button,a,input,select,textarea,summary,[tabindex]):focus-visible{outline:2px solid var(--primary);outline-offset:3px}
+input,textarea{caret-color:var(--primary)}
+.inp::placeholder{color:var(--text-3);opacity:1}
+.m-body{line-height:1.6;overscroll-behavior:contain}
+.m-head{padding:22px 24px;gap:14px}
+.m-head h3{font-size:20px;letter-spacing:-.02em;color:var(--text)}
+.m-sub{max-width:65ch;line-height:1.5;margin-top:5px}
+.m-body{padding:24px}
+.m-foot{padding:16px 24px;gap:10px;flex-wrap:wrap}
+.m-head .x{margin-left:auto;min-width:36px;min-height:36px}
+.modal,.drawer{border-radius:16px;box-shadow:var(--shadow-modal)}
+.drawer{border-radius:16px 0 0 16px}
+.field>label{line-height:1.5}
+.form-section{margin-top:26px}
+.form-section>h4{margin-bottom:14px}
+.section-guide{max-width:70ch}
+.section-guide .guide-intro{font-size:17px;color:var(--text);line-height:1.65}
+.section-guide h4{font-size:15px;margin:26px 0 9px}
+.section-guide p{color:var(--text-2);line-height:1.75}
+.section-guide details{margin:24px 0;padding:16px 0;border-top:1px solid var(--border);border-bottom:1px solid var(--border)}
+.section-guide summary{cursor:pointer;font-weight:600;color:var(--text)}
+.section-guide details p{padding-top:12px}
+.onboarding-list{max-width:940px;border-top:1px solid var(--border)}
+.onboarding-step{display:flex;align-items:center;gap:20px;padding:22px 8px;text-decoration:none;color:var(--text);border-bottom:1px solid var(--border);transition:background .2s}
+.onboarding-step:hover{background:var(--hover)}
+.onboarding-step h2{font-size:17px;letter-spacing:-.01em}
+.onboarding-step p{color:var(--text-2);margin-top:4px}
+.onboarding-step .step-number{width:38px;height:38px;flex:none;display:grid;place-items:center;background:var(--surface-3);border-radius:12px;color:var(--primary);font-weight:650}
+.step-status{margin-left:auto;white-space:nowrap;color:var(--text-2);font-size:12px;display:flex;gap:7px;align-items:center}
+.node-row::before,.prof-row::before{width:1px}
+.mobile-nav-button{display:none}
+[hidden]{display:none!important}
+@media(max-width:760px){
+ .app{grid-template-columns:minmax(0,1fr);grid-template-areas:'top' 'main' 'status';grid-template-rows:56px minmax(0,1fr) 30px}
+ .side{display:none;position:fixed;inset:56px 0 30px 0;width:min(310px,90vw);z-index:60;box-shadow:var(--shadow-lift)}
+ .app.nav-open .side{display:flex}
+ .mobile-nav-button{display:inline-flex}
+ .top{padding:8px 12px;gap:8px;min-width:0}
+ .top .search,.top .env{display:none}
+ .crumb{flex:1;min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+ .main{padding:22px 14px;min-width:0}
+ .grid.g4,.grid.g3,.grid.g2{grid-template-columns:1fr}
+ .page-head{gap:12px;margin-bottom:22px}
+ .page-head h1{font-size:24px}
+ .page-head .actions{flex-wrap:wrap}
+ .toolbar{flex-wrap:wrap;gap:10px}
+ .toolbar .search-inp{flex-basis:100%}
+ .toolbar select.inp{max-width:100%}
+ .tbl-wrap{overflow-x:auto}
+ .statusbar .item:nth-child(n+3){display:none}
+ .modal,.drawer{width:100%!important;max-width:100%!important;max-height:94dvh;border-radius:16px 16px 0 0}
+ .layer{align-items:flex-end}
+ .m-body,.m-head{padding:20px}
+ .m-foot{padding:14px 20px max(18px,env(safe-area-inset-bottom))}
+ .two-col{grid-template-columns:1fr}
+ .btn,.icon-btn{min-height:40px}
+ .icon-btn{min-width:40px}
+ .onboarding-step{gap:12px;align-items:flex-start}
+ .step-status{font-size:0}.step-status svg{width:18px}
+}
+@media(prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important;scroll-behavior:auto!important}}

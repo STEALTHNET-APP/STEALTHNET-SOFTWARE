@@ -1,0 +1,41 @@
+# Образ ноды: движок Xray + агент в одном контейнере.
+# Собирается отдельно от панели — на edge-серверах панель не нужна.
+FROM rust:1-slim AS builder
+WORKDIR /build
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        pkg-config libssl-dev ca-certificates && rm -rf /var/lib/apt/lists/*
+COPY Cargo.toml Cargo.lock ./
+COPY crates crates
+RUN cargo build --release -p sn-node
+
+FROM debian:trixie-slim
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        ca-certificates curl unzip && rm -rf /var/lib/apt/lists/*
+
+# Xray той же версии, что проверена с агентом.
+ARG XRAY_VERSION=v26.3.27
+RUN set -eux; \
+    case "$(uname -m)" in \
+      x86_64)  A=64 ;; \
+      aarch64) A=arm64-v8a ;; \
+      *) echo "неподдерживаемая архитектура"; exit 1 ;; \
+    esac; \
+    curl -fsSLo /tmp/xray.zip \
+      "https://github.com/XTLS/Xray-core/releases/download/${XRAY_VERSION}/Xray-linux-${A}.zip"; \
+    unzip -oq /tmp/xray.zip -d /tmp/xray; \
+    install -m755 /tmp/xray/xray /usr/local/bin/xray; \
+    mkdir -p /usr/local/share/xray; \
+    install -m644 /tmp/xray/geoip.dat /tmp/xray/geosite.dat /usr/local/share/xray/; \
+    rm -rf /tmp/xray.zip /tmp/xray
+
+COPY --from=builder /build/target/release/sn-node /usr/local/bin/sn-node
+
+ENV ENGINE_BIN=/usr/local/bin/xray \
+    ENGINE_CONFIG=/etc/sn-node/config.json \
+    ENGINE_API=127.0.0.1:10085 \
+    XRAY_LOCATION_ASSET=/usr/local/share/xray \
+    RUST_LOG=sn_node=info
+RUN mkdir -p /etc/sn-node
+
+# Агент запускает и перезапускает Xray сам — отдельного супервизора не нужно.
+CMD ["sn-node"]

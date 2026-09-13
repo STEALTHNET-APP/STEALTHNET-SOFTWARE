@@ -1,0 +1,31 @@
+name: Bug report / Ошибка
+description: Report reproducible behavior without secrets / Воспроизводимая ошибка без секретов
+title: '[Bug]: '
+body:
+  - type: markdown
+    attributes:
+      value: 'Security issue? Follow SECURITY.md. Do not include tokens, access codes, subscription links or customer data. / Уязвимость — по SECURITY.md. Не прикладывайте токены, коды и клиентские данные.'
+  - type: input
+    id: version
+    attributes:
+      label: Version and OS / Версия и ОС
+      description: Panel, Xray, OS and architecture / Панель, Xray, ОС и архитектура
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce / Шаги воспроизведения
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected and actual result / Ожидаемый и фактический результат
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Redacted logs or screenshots / Обезличенные журналы или скриншоты
+      description: Include viewport, language and theme for visual issues / Для UI укажите размер окна, язык и тему

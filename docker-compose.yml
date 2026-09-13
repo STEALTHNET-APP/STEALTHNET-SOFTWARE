@@ -1,0 +1,98 @@
+# Запуск: скопируйте .env.example в .env, заполните и выполните
+#   docker compose up -d
+# Затем создайте администратора:
+#   docker compose run --rm api sn-admin admin ВАШ_ПАРОЛЬ owner
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${DB_NAME:-stealthnet}
+      POSTGRES_USER: ${DB_USER:-stealthnet}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?задайте DB_PASSWORD в .env}
+    volumes:
+      - db-data:/var/lib/postgresql/data
+      # Миграции применяются один раз при создании тома.
+      - ./db/migrations:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-stealthnet}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  api:
+    build: .
+    restart: unless-stopped
+    command: sn-api
+    env_file: .env
+    environment:
+      DATABASE_URL: postgres://${DB_USER:-stealthnet}:${DB_PASSWORD}@db/${DB_NAME:-stealthnet}
+      API_BIND: 0.0.0.0:8080
+    depends_on:
+      db: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8080/api/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+  sub:
+    build: .
+    restart: unless-stopped
+    command: sn-sub
+    env_file: .env
+    environment:
+      DATABASE_URL: postgres://${DB_USER:-stealthnet}:${DB_PASSWORD}@db/${DB_NAME:-stealthnet}
+      SUB_MODE: db
+      SUB_BIND: 0.0.0.0:8081
+    depends_on:
+      db: { condition: service_healthy }
+
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8081/ready"]
+      interval: 15s
+      timeout: 12s
+      retries: 5
+
+  worker:
+    build: .
+    restart: unless-stopped
+    command: sn-worker
+    env_file: .env
+    environment:
+      DATABASE_URL: postgres://${DB_USER:-stealthnet}:${DB_PASSWORD}@db/${DB_NAME:-stealthnet}
+    depends_on:
+      db: { condition: service_healthy }
+
+  bot:
+    build: .
+    restart: unless-stopped
+    command: sn-bot
+    env_file: .env
+    environment:
+      DATABASE_URL: postgres://${DB_USER:-stealthnet}:${DB_PASSWORD}@db/${DB_NAME:-stealthnet}
+    depends_on:
+      db: { condition: service_healthy }
+    # Без токена бот осмысленно не запускается — профиль включает его вручную:
+    #   docker compose --profile bot up -d
+    profiles: [bot]
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports: ["80:80", "443:443", "443:443/udp"]
+    environment:
+      PANEL_DOMAIN: ${PANEL_DOMAIN:?задайте PANEL_DOMAIN}
+      SUB_DOMAIN: ${SUB_DOMAIN:?задайте SUB_DOMAIN}
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./web:/srv/web:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on: [api, sub]
+
+volumes:
+  db-data:
+  caddy-data:
+  caddy-config:

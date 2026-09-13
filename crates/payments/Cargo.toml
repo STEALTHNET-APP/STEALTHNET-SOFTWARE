@@ -1,0 +1,22 @@
+[package]
+name = "sn-payments"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+sn-core = { path = "../core" }
+async-trait = "0.1"
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+serde.workspace = true
+serde_json.workspace = true
+sqlx.workspace = true
+chrono.workspace = true
+uuid.workspace = true
+tracing.workspace = true
+hmac = "0.12"
+sha2.workspace = true
+hex.workspace = true
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt"] }

@@ -1,0 +1,72 @@
+<!doctype html><html lang="ru"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="light dark"><title>Установка страницы подписки · STEALTHNET</title><style>
+:root{color-scheme:light;--bg:#f4f6fa;--paper:#fff;--text:#17243a;--muted:#53637b;--line:#d9e1ec;--accent:#137891}*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font:16px/1.7 system-ui,sans-serif}main{max-width:900px;margin:32px auto;padding:36px;background:var(--paper);border:1px solid var(--line);border-radius:12px}nav{font-size:14px;margin-bottom:32px}h1{font-size:32px;line-height:1.2;letter-spacing:-.03em}h2{font-size:23px;line-height:1.3;margin:44px 0 16px}a{color:var(--accent);text-underline-offset:3px}p,li{overflow-wrap:anywhere}li{margin:12px 0}pre{padding:18px;background:var(--bg);border:1px solid var(--line);border-radius:8px;white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.55}code{font-size:.9em}table{border-collapse:collapse;width:100%;font-size:14px}td,th{padding:12px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}.table-scroll{overflow-x:auto}.table-scroll:focus-visible{outline:2px solid var(--accent);outline-offset:4px}footer{margin-top:40px;font-size:13px;color:var(--muted)}@media(max-width:600px){main{margin:0;padding:22px 18px;border:0;border-radius:0}h1{font-size:28px}h2{font-size:21px}table{min-width:500px}}@media(prefers-color-scheme:dark){:root{color-scheme:dark;--bg:#101827;--paper:#182235;--text:#e3eaf4;--muted:#a1b2c9;--line:#334258;--accent:#66c7dd}}
+</style><main><nav><a href="/subscription-installation-en.html" lang="en">English</a></nav><nav><a href="/#/settings">← Настройки панели</a> · Инструкция владельцу сервиса</nav><h1>Установка страницы подписки</h1>
+<p>Страница подключения и выдача конфигураций работают в одном сервисе <code>sn-sub</code>. Браузер получает страницу с приложениями и инструкциями, VPN-приложение — конфигурацию по той же ссылке <code>/s/ID</code>. Покупки остаются в боте и Mini App. Отдельный клиентский кабинет на основном домене будет подключаться самостоятельно.</p>
+<h2>Выберите размещение</h2>
+<div class="table-scroll" tabindex="0" role="region" aria-label="Выберите размещение — таблица с горизонтальной прокруткой"><table><thead><tr><th></th><th>Один сервер с панелью</th><th>Отдельный сервер</th></tr></thead><tbody>
+<tr><td>Источник данных</td><td>Локальная PostgreSQL, <code>SUB_MODE=db</code></td><td>API панели, <code>SUB_MODE=api</code></td></tr>
+<tr><td>Установка</td><td>Уже входит в <code>install.sh</code> и Compose проекта</td><td>Команда в Настройки → Сервис подписки</td></tr>
+<tr><td>Служебный ключ</td><td>Не требуется</td><td>Требуется</td></tr>
+<tr><td>Домен, пример</td><td><code>sub.example.com</code> → IP панели</td><td><code>sub.example.com</code> → IP отдельного сервера</td></tr>
+<tr><td>Соединение с панелью</td><td>Через локальную базу</td><td>Исходящий HTTPS к <code>panel.example.com</code></td></tr>
+</tbody></table></div>
+<p>Панели и подписке нужны разные домены. Например: панель — <code>panel.example.com</code>, подключение — <code>sub.example.com</code>, будущий кабинет — <code>example.com</code>. Ниже замените примеры своими доменами.</p>
+<h2>1. Настройки в панели</h2>
+<p>Откройте <strong>Настройки → Сервис подписки</strong>. Укажите внешний адрес панели и адрес подписки целиком, например <code>https://panel.example.com</code> и <code>https://sub.example.com</code>. Адреса задаются без <code>/s/ID</code>, других путей, параметров и логина/пароля. Сохраните их. Ссылки новых и существующих клиентов будут использовать указанный домен подписки.</p>
+<p>Кнопка <strong>Установка</strong> открывает инструкции для обоих вариантов. Не меняйте рабочий ключ только ради просмотра инструкции: ключ показывается целиком один раз, а его перевыпуск немедленно отзывает предыдущий.</p>
+<h2>2А. На одном сервере с панелью</h2>
+<p>Если панель установлена через <code>install.sh</code>, <code>sn-sub</code> уже установлен и читает ту же базу. Сервис использует общий <code>.env</code> из каталога проекта, заданный в <code>EnvironmentFile</code> его systemd-юнита. Не заменяйте этот юнит инструкциями для отдельной машины.</p>
+<p>Выполните на сервере панели:</p>
+<pre><code>systemctl status sn-sub --no-pager
+curl -fsS http://127.0.0.1:8081/ready</code></pre>
+<p>Ожидаемый ответ: <code>{&quot;status&quot;:&quot;ready&quot;}</code>. Если служба выключена:</p>
+<pre><code>systemctl enable --now sn-sub
+journalctl -u sn-sub -n 50 --no-pager</code></pre>
+<p>Проверьте в <code>.env</code> проекта <code>SUB_MODE=db</code>, правильный <code>DATABASE_URL</code>, <code>SUB_BIND=127.0.0.1:8081</code> и <code>SUB_PUBLIC_URL=https://sub.example.com</code>. После изменения <code>.env</code> перезапустите только <code>sn-sub</code>.</p>
+<p>Для новой установки всей панели запустите <code>sudo bash install.sh</code> из каталога исходников проекта. Скрипт спросит два домена, установит оба сервиса и создаст конфигурацию Caddy. Не запускайте <code>install-sub.sh</code> поверх существующей установки панели.</p>
+<p><strong>Если панель работает в Docker Compose:</strong> в каталоге проекта выполните <code>docker compose up -d sub</code> и <code>docker compose exec sub curl -fsS http://127.0.0.1:8081/ready</code>. Сервис собирается из исходников проекта, слушает <code>0.0.0.0:8081</code> внутри контейнера; Caddy обращается к <code>sub:8081</code>. Внешняя база или служебный ключ не нужны. Не подставляйте <code>127.0.0.1:8081</code> как upstream в контейнер Caddy — это адрес самого контейнера Caddy.</p>
+<h2>2Б. На отдельном сервере</h2>
+<p>Нужен чистый Debian/Ubuntu с systemd и архитектурой amd64 или arm64. Работающий сервер должен иметь исходящий доступ к панели по HTTPS. PostgreSQL и открытый доступ к базе панели не нужны.</p>
+<ol>
+<li>В панели сохраните домены. Выпустите служебный ключ, сохраните его, откройте вариант <strong>На отдельном сервере → Установка</strong>.</li>
+<li>Подключитесь к новому серверу по SSH от root. Скопируйте установочную команду целиком из панели и выполните её там.</li>
+<li>Установщик проверит ключ, ответ API, архитектуру и запуск скачанного бинарника. Он создаст <code>/etc/sn-sub/env</code> с правами 600 и systemd-службу.</li>
+<li>Дождитесь сообщения, что сервис получает данные панели. Это проверка локальной службы; публичный HTTPS настраивается следующим шагом.</li>
+</ol>
+<p>Если бинарник нужной архитектуры ещё не опубликован, установка остановится. Нужно собрать <code>sn-sub</code> для Linux этой архитектуры и разместить <code>sn-sub-linux-amd64</code> или <code>sn-sub-linux-arm64</code> в каталоге сайта панели. Установка панели публикует сборку архитектуры своего сервера. Также можно задать <code>SUB_BINARY_URL</code> с адресом своей сборки. Рядом со сборкой должен находиться файл <code>.sha256</code> с её SHA256, например <code>sn-sub-linux-amd64.sha256</code>. Скрипт скачивает файлы по HTTPS и проверяет сумму до запуска; повреждённая сборка или HTML вместо бинарника не устанавливаются.</p>
+<p>Служебный ключ находится только в <code>/etc/sn-sub/env</code>, а не в публично читаемом юните. Для смены ключа обновите <code>SUB_SERVICE_TOKEN</code> в этом файле и выполните <code>systemctl restart sn-sub</code>. Все отдельные экземпляры подписки используют один активный ключ проекта: после перевыпуска обновите каждый экземпляр.</p>
+<p><strong>Docker на отдельном сервере:</strong> готовый Compose появляется, только когда владелец панели указал доступный <code>SUB_IMAGE</code>. Образ должен содержать команду <code>sn-sub</code>; его можно собрать из Dockerfile проекта и опубликовать в своём registry. Compose задаёт <code>SUB_MODE=api</code>, <code>SUB_BIND=0.0.0.0:8081</code> и публикует порт только на <code>127.0.0.1</code> хоста. При обычной установке через скрипт Docker не требуется.</p>
+<h2>3. DNS и HTTPS — для обоих вариантов</h2>
+<p>Создайте DNS A для домена подписки на IP выбранного сервера. AAAA добавляйте только при работающем IPv6 на том же сервере; неверная AAAA часто мешает выпуску сертификата. Откройте входящие TCP 80 и 443 в firewall ОС и у хостера. Порт 8081 оставьте закрытым снаружи.</p>
+<p>Если Caddy уже работает рядом с панелью, используйте его. Если на новом сервере веб-сервера нет, установите Caddy по <a href="https://caddyserver.com/docs/install#debian-ubuntu-raspbian" rel="noopener">официальной инструкции для Debian/Ubuntu</a>. Если 80/443 уже занимает Nginx, настройте reverse proxy в нём и действующий TLS-сертификат либо осознанно перенесите сайты в Caddy; два веб-сервера не смогут слушать одинаковые порты.</p>
+<p>Добавьте блок в существующий <code>/etc/caddy/Caddyfile</code>, сохранив другие сайты:</p>
+<pre><code>https://sub.example.com {
+    encode zstd gzip
+    reverse_proxy 127.0.0.1:8081
+    header -Server
+}</code></pre>
+<p>Этот блок предназначен для Caddy на хосте. Для Caddy внутри общей сети Compose используйте <code>reverse_proxy sub:8081</code>, как в <code>deploy/Caddyfile</code> проекта. Если блок домена уже существует, измените его вместо добавления дубликата.</p>
+<p>Проверьте и примените:</p>
+<pre><code>caddy validate --config /etc/caddy/Caddyfile
+systemctl reload caddy
+curl -fsS https://sub.example.com/ready</code></pre>
+<p>Caddy автоматически получает и продлевает сертификат при доступных DNS и портах. Подробнее: <a href="https://caddyserver.com/docs/automatic-https" rel="noopener">Automatic HTTPS</a>. Для отдельного сервера запрос к панели проходит по проверяемому HTTPS; не отключайте проверку сертификата.</p>
+<h2>4. Проверка клиентом</h2>
+<p>Откройте в панели действующего тестового клиента, у которого есть сквад с хостами, и скопируйте его реальную ссылку. Откройте её в браузере: должны загрузиться статус, приложения и кнопка подключения. Проверьте QR-код. Импортируйте ту же ссылку в VPN-приложение и обновите подписку: должны появиться доступные этому клиенту локации. Затем проверьте VPN-подключение.</p>
+<p><code>/health</code> означает только, что процесс отвечает. <code>/ready</code> проверяет доступ к базе или API. Ни один из этих адресов сам по себе не проверяет доступ клиента к VPN-ноде. Запрос <code>/s/НЕСУЩЕСТВУЮЩИЙ_ID</code> должен вернуть 404; это не проверка действующей подписки.</p>
+<h2>5. Обновление</h2>
+<p><strong>Один сервер:</strong> обновляйте панель через <code>update.sh</code> из каталога проекта. Он обновляет и сервис подписки. Для Compose пересоберите сервисы проекта через <code>docker compose up -d --build</code>.</p>
+<p><strong>Отдельный сервер:</strong> сначала обновите панель, затем на сервере подписки выполните:</p>
+<pre><code>env PANEL_URL=&#x27;https://panel.example.com&#x27; bash -o pipefail -c &#x27;curl -fsSL &quot;$PANEL_URL/update-sub.sh&quot; | bash&#x27;</code></pre>
+<p>Обновлятор сохраняет <code>/etc/sn-sub/env</code>, заменяет бинарник атомарно и проверяет готовность. Если новая служба не готова, возвращает предыдущий бинарник. Ключ и адреса не меняются. Повторный запуск свежего установщика вместо обновлятора остановится, чтобы не затереть рабочую службу.</p>
+<h2>Если что-то не работает</h2>
+<div class="table-scroll" tabindex="0" role="region" aria-label="Если что-то не работает — таблица с горизонтальной прокруткой"><table><thead><tr><th>Симптом</th><th>Что проверить</th></tr></thead><tbody>
+<tr><td>Панель отвергла ключ</td><td>Правильный <code>PANEL_URL</code>, актуальный <code>SUB_SERVICE_TOKEN</code>, доступ к <code>/api/sub/settings</code>; новый ключ отзывает старый</td></tr>
+<tr><td>Вместо бинарника HTML</td><td>В каталоге сайта панели отсутствует сборка нужной архитектуры; обновите панель или опубликуйте сборку</td></tr>
+<tr><td>Служба не стартует</td><td><code>journalctl -u sn-sub -n 50 --no-pager</code>, параметры <code>/etc/sn-sub/env</code>, порт 8081, запуск бинарника нужной архитектуры</td></tr>
+<tr><td><code>/ready</code> возвращает 503</td><td>Источник данных недоступен: в режиме API проверьте сеть/ключ панели; в режиме DB — PostgreSQL и <code>DATABASE_URL</code></td></tr>
+<tr><td>HTTPS не открывается</td><td>A/AAAA, TCP 80/443, сертификат, <code>journalctl -u caddy -n 50</code>, отсутствие конфликта веб-серверов</td></tr>
+<tr><td>Страница открылась, локаций нет</td><td>Активность клиента, тариф, внутренний сквад, включённые хосты и инбаунды нод</td></tr>
+<tr><td>Ссылки ведут на старый домен</td><td>Адрес подписки в Настройки → Сервис подписки; обновление кэша настроек занимает до 30 секунд</td></tr>
+</tbody></table></div>
+<p>Отдельное размещение не делает подписку независимой от панели: при недоступности API новые запросы конфигураций не смогут получить данные. Уже установленный VPN-туннель обслуживает нода и имеет отдельный жизненный цикл.</p><footer>STEALTHNET · Инструкция проверена 12 сентября 2026 г.</footer></main></html>

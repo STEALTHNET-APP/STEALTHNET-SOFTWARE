@@ -1,0 +1,38 @@
+# Caddy сам получает и продлевает сертификаты — отдельный cron не нужен.
+{$PANEL_DOMAIN} {
+	encode zstd gzip
+	handle /api/* {
+		reverse_proxy api:8080
+	}
+	# Клиентское приложение обслуживает только установленный sn-cabinet.
+	handle /app* {
+		root * /srv/web
+		rewrite * /miniapp-unavailable.html
+		file_server
+	}
+	# Статику панели раздаёт сам Caddy: гонять её через API незачем.
+	handle {
+		root * /srv/web
+		try_files {path} {path}/index.html /index.html
+		file_server
+		# Без явного заголовка браузер кэширует файлы панели эвристически и
+		# после обновления показывает старую версию — выглядит как «код
+		# выкатили, а ничего не изменилось». ETag остаётся, поэтому
+		# перепроверка стоит один 304, а не повторную загрузку.
+		header Cache-Control "no-cache"
+	}
+	header {
+		-Server
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options nosniff
+		Referrer-Policy no-referrer
+		X-Frame-Options DENY
+		Content-Security-Policy "frame-ancestors 'none'; base-uri 'self'; object-src 'none'"
+	}
+}
+
+{$SUB_DOMAIN} {
+	encode zstd gzip
+	reverse_proxy sub:8081
+	header -Server
+}

@@ -1,0 +1,50 @@
+/target
+.env
+*.log
+# Local audit sessions, credentials and downloaded test runtimes
+/.qa-runtime/
+.env.*
+!.env.example
+.DS_Store
+
+# Internal audit evidence and conversations are not public repository content.
+/docs/audit-*/
+.impeccable/
+/web/sn-*-linux-*
+
+# Local visual harnesses contain environment snapshots; only the public docs check ships.
+/devtools/*
+!/devtools/check-docs.py
+/docs/design/
+/docs/repository-preparation.md
+__pycache__/
+*.pyc
+/build/
+/builds/
+/dist/
+
+# Installation state and operator-owned data are never source files.
+/backups/
+/releases/
+/current
+/shared/
+/data/
+/uploads/
+/installation.json
+/.install-pending.json
+/.current-next
+/Caddyfile.example
+/Caddyfile.before-install
+/docker-compose.override.yml
+/docker-compose.override.yaml
+*.dump
+*.backup
+*.sqlite
+*.sqlite3
+*.pem
+*.key
+.envrc
+
+/web/uploads/
+/web/custom/
+node_modules/

@@ -1,0 +1,40 @@
+[package]
+name = "sn-api"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+sn-core = { path = "../core" }
+sn-payments = { path = "../payments" }
+sn-sub = { path = "../sub" }
+tokio.workspace = true
+axum.workspace = true
+tower-http.workspace = true
+sqlx.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+chrono.workspace = true
+uuid.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+rand.workspace = true
+reqwest.workspace = true
+webauthn-rs = { version = "0.5.5", features = ["danger-allow-state-serialisation"] }
+# Проверка подписи Telegram у мини-приложения.
+sha2.workspace = true
+hex.workspace = true
+semver = "1"
+hmac.workspace = true
+
+[[bin]]
+name = "sn-api"
+path = "src/main.rs"
+
+[[bin]]
+name = "sn-admin"
+path = "src/bin/admin.rs"
+
+[[bin]]
+name = "sn-cabinet"
+path = "src/bin/cabinet.rs"

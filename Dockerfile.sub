@@ -1,0 +1,29 @@
+# Образ сервиса подписок — только он один.
+#
+# Отдельный образ, а не общий с панелью: сабку выносят на другой сервер и
+# другой домен, чтобы блокировка панели не отрезала клиентов от конфигов.
+# Тащить туда бинари панели, бота и воркера незачем, а лишний код на машине,
+# смотрящей в интернет, — лишняя поверхность атаки.
+FROM rust:1-slim AS builder
+WORKDIR /build
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        pkg-config libssl-dev ca-certificates && rm -rf /var/lib/apt/lists/*
+COPY Cargo.toml Cargo.lock ./
+COPY crates crates
+RUN cargo build --release -p sn-sub
+
+FROM debian:trixie-slim
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        ca-certificates && rm -rf /var/lib/apt/lists/*
+COPY --from=builder /build/target/release/sn-sub /usr/local/bin/
+
+# Своя учётка: сервис смотрит в интернет и не должен работать от root.
+RUN useradd --system --no-create-home --shell /usr/sbin/nologin sn
+USER sn
+
+# В режиме api базы у этой машины нет — только адрес панели и токен.
+ENV SUB_MODE=api \
+    RUST_LOG=sn_sub=info
+
+EXPOSE 8081
+CMD ["sn-sub"]
