@@ -327,7 +327,7 @@ async function loadDB() {
       msgs: [{ who: 'user', text: t.last_message || '', at: '' }],
     })),
     loadOptional('/api/broadcasts', (b) => ({
-      id: String(b.id), name: b.title, status: b.status,
+      id: String(b.id), name: b.title, status: b.status,lastError:b.last_error,retryAt:b.retry_at,
       segment: b.segment || 'all',
       audience: { all:'все клиенты', active:'активные', expired:'истёкшие',
                   limited:'на лимите', trial:'на пробном' }[b.segment] || b.segment || 'все',

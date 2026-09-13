@@ -1,4 +1,4 @@
-//! Утилита создания администратора: `sn-admin <логин> <пароль>`.
+//! Создание или восстановление аккаунта: `sn-admin --password-stdin <логин> [роль]`.
 //! Отдельный бинарник, чтобы не заводить в API «ручку создания первого админа» —
 //! такие ручки регулярно забывают закрыть.
 
@@ -41,19 +41,23 @@ async fn main() -> Result<()> {
     let hash = sn_core::auth::hash_password(&password)?;
 
     // Повторный запуск меняет пароль, а не падает: так восстанавливают доступ.
-    let id: i64 = sqlx::query_scalar(
+    let mut tx=pool.begin().await?;
+    let (id,actual_role): (i64,String) = sqlx::query_as(
         "INSERT INTO admins (username, password_hash, role)
          VALUES ($1, $2, $3)
          ON CONFLICT ((lower(username))) DO UPDATE
             SET password_hash = EXCLUDED.password_hash, is_active = true
-         RETURNING id",
+         RETURNING id,role",
     )
     .bind(&username)
     .bind(&hash)
     .bind(&role)
-    .fetch_one(&pool)
+    .fetch_one(&mut *tx)
     .await?;
 
-    println!("администратор «{username}» готов (id={id}, роль={role})");
+    sqlx::query("DELETE FROM admin_sessions WHERE admin_id=$1").bind(id).execute(&mut *tx).await?;
+    sqlx::query("UPDATE api_tokens SET revoked_at=now() WHERE created_by=$1 AND revoked_at IS NULL").bind(id).execute(&mut *tx).await?;
+    tx.commit().await?;
+    println!("администратор «{username}» готов (id={id}, роль={actual_role})");
     Ok(())
 }

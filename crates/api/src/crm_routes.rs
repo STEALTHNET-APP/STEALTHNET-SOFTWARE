@@ -28,7 +28,8 @@ pub fn crm_routes() -> Router<AppState> {
         .route("/api/tickets/{id}/reply", post(ticket_reply))
         .route("/api/tickets/{id}/close", post(ticket_close))
         .route("/api/broadcasts", get(broadcasts_list).post(broadcast_create))
-        .route("/api/broadcasts/{id}", axum::routing::patch(broadcast_update))
+        .route("/api/broadcasts/worker", get(broadcast_worker))
+        .route("/api/broadcasts/{id}", get(broadcast_details).patch(broadcast_update))
         .route("/api/broadcasts/{id}/send", post(broadcast_send))
         .route("/api/broadcasts/{id}/cancel", post(broadcast_cancel))
         .route("/api/sessions", get(sessions_list))
@@ -650,7 +651,7 @@ async fn ticket_close(
 async fn broadcasts_list(_a: CurrentAdmin, State(st): State<AppState>) -> Result<Json<Value>> {
     let rows = sqlx::query(
         "SELECT id, title, body, status::text AS status, segment, total_count, sent_count,
-                failed_count, button_text, button_url, scheduled_at, created_at
+                failed_count, button_text, button_url, scheduled_at, created_at, last_error, retry_at
            FROM broadcasts ORDER BY id DESC LIMIT 100",
     )
     .fetch_all(&st.pool)
@@ -674,6 +675,7 @@ async fn broadcasts_list(_a: CurrentAdmin, State(st): State<AppState>) -> Result
             "failed_count": r.get::<i32, _>("failed_count"),
             "scheduled_at": dt(r, "scheduled_at"),
             "created_at": dt(r, "created_at"),
+            "last_error":r.get::<Option<String>,_>("last_error"),"retry_at":dt(r,"retry_at"),
         }))
         .collect::<Vec<_>>())))
 }
@@ -782,31 +784,30 @@ async fn broadcast_send(
         .ok_or(Error::NotFound)?;
 
     let status: String = row.get("status");
+
+    let token=std::env::var("BOT_TOKEN").ok().filter(|s|!s.trim().is_empty()).ok_or_else(||Error::bad("Бот не настроен. Добавьте токен Telegram-бота на сервере"))?;
+    // Preview uses the same transport, markup and button as the real worker.
+    if let Some(chat)=b.test_to {
+        if chat<=0 {return Err(Error::bad("Укажите Telegram ID получателя теста"));}
+        let button=sqlx::query("SELECT button_text,button_url FROM broadcasts WHERE id=$1").bind(id).fetch_one(&st.pool).await?;
+        let keyboard=match(button.get::<Option<String>,_>("button_text"),button.get::<Option<String>,_>("button_url")) {
+            (Some(t),Some(u)) if !t.is_empty() && !u.is_empty()=>Some(json!({"inline_keyboard":[[{"text":t,"url":u}]]})),_=>None};
+        let text=sn_core::telegram_send::personalize(row.get("body"),&admin.username,"—","—");
+        let http=sn_core::telegram_send::client()?;
+        return match sn_core::telegram_send::send(&http,sn_core::telegram_send::API,&token,chat,&text,&keyboard).await {
+            sn_core::telegram_send::Delivery::Sent=>Ok(Json(json!({"ok":true,"test":true}))),
+            sn_core::telegram_send::Delivery::Permanent(e)|sn_core::telegram_send::Delivery::Stop(e)=>Err(Error::bad(e)),
+            sn_core::telegram_send::Delivery::Retry{error,..}=>Err(Error::bad(error)),
+        };
+    }
     if status == "sending" || status == "sent" {
         return Err(Error::Conflict(format!("рассылка уже в статусе «{status}»")));
     }
-
-    // Тестовая отправка не меняет статус: это проверка текста, а не запуск.
-    if let Some(chat_id) = b.test_to {
-        let token = std::env::var("BOT_TOKEN")
-            .map_err(|_| Error::bad("бот не настроен"))?;
-        let ok = reqwest::Client::new()
-            .post(format!("https://api.telegram.org/bot{token}/sendMessage"))
-            .json(&json!({
-                "chat_id": chat_id,
-                "text": row.get::<String, _>("body"),
-                "parse_mode": "HTML",
-            }))
-            .send()
-            .await
-            .map(|r| r.status().is_success())
-            .unwrap_or(false);
-        return Ok(Json(json!({ "ok": ok, "test": true })));
-    }
-
+    let alive:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM service_heartbeats WHERE service='broadcasts' AND last_seen_at>now()-interval '3 minutes' AND details->>'bot_configured'='true')").fetch_one(&st.pool).await?;
+    if !alive {return Err(Error::bad("Служба рассылок не готова. Проверьте sn-worker и токен бота"));}
     if b.scheduled_at.is_some_and(|at| at<=Utc::now()) { return Err(Error::bad("выберите время отправки в будущем")); }
     let scheduled=sqlx::query(
-        "UPDATE broadcasts SET status = 'scheduled', scheduled_at = COALESCE($2, now())
+        "UPDATE broadcasts SET status = 'scheduled', scheduled_at = COALESCE($2, now()), last_error=NULL, retry_at=NULL, finished_at=NULL
           WHERE id = $1 AND status IN ('draft','scheduled','canceled')",
     )
     .bind(id)
@@ -973,4 +974,14 @@ async fn bot_alerts_retry(_a:CurrentAdmin,State(st):State<AppState>)->Result<Jso
     let (chat,topic)=sn_core::alerts::destination(&s)?;
     let result=sqlx::query("UPDATE team_notifications SET status='pending',attempts=0,available_at=now(),error=NULL WHERE status='failed' AND created_at>now()-interval '24 hours' AND chat_id=$1 AND thread_id IS NOT DISTINCT FROM $2").bind(chat).bind(topic).execute(&st.pool).await?;
     Ok(Json(json!({"queued":result.rows_affected()})))
+}
+
+async fn broadcast_worker(_a:CurrentAdmin,State(st):State<AppState>)->Result<Json<Value>> {
+    let r=sqlx::query("SELECT last_seen_at,details,last_seen_at>now()-interval '3 minutes' AS alive FROM service_heartbeats WHERE service='broadcasts'").fetch_optional(&st.pool).await?;
+    Ok(Json(match r {Some(r)=>json!({"alive":r.get::<bool,_>("alive"),"last_seen_at":r.get::<DateTime<Utc>,_>("last_seen_at"),"bot_configured":r.get::<Value,_>("details")["bot_configured"]}),None=>json!({"alive":false,"last_seen_at":null,"bot_configured":false})}))
+}
+async fn broadcast_details(_a:CurrentAdmin,State(st):State<AppState>,Path(id):Path<i64>)->Result<Json<Value>> {
+    let r=sqlx::query("SELECT last_error,retry_at,status::text AS status FROM broadcasts WHERE id=$1").bind(id).fetch_optional(&st.pool).await?.ok_or(Error::NotFound)?;
+    let errors=sqlx::query("SELECT d.client_id,c.username,d.error,d.attempts FROM broadcast_deliveries d JOIN clients c ON c.id=d.client_id WHERE d.broadcast_id=$1 AND d.error IS NOT NULL ORDER BY d.client_id LIMIT 100").bind(id).fetch_all(&st.pool).await?;
+    Ok(Json(json!({"last_error":r.get::<Option<String>,_>("last_error"),"retry_at":dt(&r,"retry_at"),"status":r.get::<String,_>("status"),"errors":errors.iter().map(|r|json!({"client_id":r.get::<i64,_>("client_id"),"username":r.get::<String,_>("username"),"error":r.get::<String,_>("error"),"attempts":r.get::<i32,_>("attempts")})).collect::<Vec<_>>()})))
 }

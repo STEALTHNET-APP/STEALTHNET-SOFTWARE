@@ -81,3 +81,8 @@ Start with installation and first setup. Each section explains its purpose, work
 ## Verification and feedback
 
 [Compatibility matrix](../compatibility.md) · [Interface gallery](../media/README.md) · [Security reporting](../../SECURITY.md)
+
+## Owner and teammates
+
+- [Admin profile](sections/admin-profile.md)
+- [First owner and team](sections/team.md)

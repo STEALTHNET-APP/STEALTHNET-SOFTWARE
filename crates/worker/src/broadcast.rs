@@ -1,281 +1,309 @@
-//! Отправка рассылок в Telegram.
-//!
-//! Рассылка — единственная операция, которая за минуту касается всей базы
-//! клиентов. Отсюда требования: не превысить лимиты Telegram, не потерять
-//! прогресс при перезапуске и не долбить тех, кто заблокировал бота.
-
+//! Durable broadcast queue. One sender holds an advisory transaction lock;
+//! delivery counters and retry reasons remain visible across worker restarts.
 use serde_json::json;
-use sn_core::{Pool, Result};
+use sn_core::{
+    telegram_send::{self, Delivery},
+    Pool, Result,
+};
 use sqlx::Row;
+const BATCH: i64 = 100;
+const LOCK: i64 = 0x534e42524f4144;
 
-/// Telegram отдаёт примерно 30 сообщений в секунду на бота.
-/// Берём с запасом: упереться в лимит дороже, чем отправить на секунду дольше.
-const MESSAGES_PER_SEC: u64 = 20;
-
-/// Сколько получателей берём за один проход. Меньше — чаще обновляются
-/// счётчики в панели и мягче реакция на остановку.
-const BATCH: i64 = 500;
-
-/// Забирает одну рассылку, готовую к отправке, и отправляет очередную порцию.
-pub async fn tick(pool: &Pool, bot_token: &str) -> Result<()> {
-    // Берём рассылку в работу атомарно: два воркера не должны взять одну и ту же.
+pub async fn tick(pool: &Pool, token: &str) -> Result<()> {
+    tick_at(pool, token, telegram_send::API).await
+}
+async fn tick_at(pool: &Pool, token: &str, endpoint: &str) -> Result<()> {
+    let mut guard = pool.begin().await?;
+    if !sqlx::query_scalar::<_, bool>("SELECT pg_try_advisory_xact_lock($1)")
+        .bind(LOCK)
+        .fetch_one(&mut *guard)
+        .await?
+    {
+        return Ok(());
+    }
     let row = sqlx::query(
-        "UPDATE broadcasts SET status = 'sending', started_at = COALESCE(started_at, now())
-          WHERE id = (
-              SELECT id FROM broadcasts
-               WHERE status IN ('scheduled', 'sending')
-                 AND (scheduled_at IS NULL OR scheduled_at <= now())
-               ORDER BY id
-               FOR UPDATE SKIP LOCKED
-               LIMIT 1)
-      RETURNING id, title, body, button_text, button_url, segment",
+        "UPDATE broadcasts SET status='sending',started_at=COALESCE(started_at,now())
+        WHERE id=(SELECT id FROM broadcasts WHERE status IN ('scheduled','sending')
+        AND (scheduled_at IS NULL OR scheduled_at<=now()) AND (retry_at IS NULL OR retry_at<=now())
+        ORDER BY COALESCE(retry_at,scheduled_at,created_at),id LIMIT 1)
+        RETURNING id,body,button_text,button_url,segment,recipients_prepared",
     )
     .fetch_optional(pool)
     .await?;
-
-    let Some(row) = row else { return Ok(()) };
-
-    let id: i64 = row.get("id");
-    let body: String = row.get("body");
-    let button_text: Option<String> = row.get("button_text");
-    let button_url: Option<String> = row.get("button_url");
-    let segment: serde_json::Value = row.get("segment");
-
-    // Получателей материализуем один раз: если делать выборку на каждый
-    // проход, изменившийся статус клиента может выкинуть его из рассылки
-    // на середине — или, наоборот, добавить второй раз.
-    let filled: bool = sqlx::query_scalar(
-        "SELECT EXISTS(SELECT 1 FROM broadcast_deliveries WHERE broadcast_id = $1)",
-    )
-    .bind(id)
-    .fetch_one(pool)
-    .await?;
-
-    if !filled {
-        let kind = segment["kind"].as_str().unwrap_or("all");
-        let inserted = fill_recipients(pool, id, kind).await?;
-        sqlx::query("UPDATE broadcasts SET total_count = $2 WHERE id = $1")
-            .bind(id)
-            .bind(inserted as i32)
-            .execute(pool)
-            .await?;
-        tracing::info!(broadcast = id, recipients = inserted, "рассылка подготовлена");
-    }
-
-    let batch = sqlx::query(
-        "SELECT d.client_id, i.value AS chat_id, co.username, co.tariff_code, co.expires_at
-           FROM broadcast_deliveries d
-           JOIN client_identities i ON i.client_id = d.client_id AND i.kind = 'telegram'
-           JOIN client_overview co ON co.id=d.client_id
-          WHERE d.broadcast_id = $1 AND d.sent_at IS NULL AND d.error IS NULL
-          LIMIT $2",
-    )
-    .bind(id)
-    .bind(BATCH)
-    .fetch_all(pool)
-    .await?;
-
-    if batch.is_empty() {
-        finish(pool, id).await?;
-        return Ok(());
-    }
-
-    let keyboard = match (&button_text, &button_url) {
+    let Some(r) = row else { return Ok(()) };
+    let id: i64 = r.get("id");
+    let body: String = r.get("body");
+    let label: Option<String> = r.get("button_text");
+    let url: Option<String> = r.get("button_url");
+    let keyboard = match (label, url) {
         (Some(t), Some(u)) if !t.is_empty() && !u.is_empty() => {
-            Some(json!({ "inline_keyboard": [[{ "text": t, "url": u }]] }))
+            Some(json!({"inline_keyboard":[[{"text":t,"url":u}]]}))
         }
         _ => None,
     };
-
-    let http = reqwest::Client::new();
-    let delay = std::time::Duration::from_millis(1000 / MESSAGES_PER_SEC);
-    let mut sent = 0u32;
-    let mut failed = 0u32;
-
-    for (index, r) in batch.iter().enumerate() {
-        if index % 20 == 0 {
-            let running: bool=sqlx::query_scalar("SELECT status='sending' FROM broadcasts WHERE id=$1").bind(id).fetch_one(pool).await?;
-            if !running { break; }
-        }
-        let client_id: i64 = r.get("client_id");
-        let Ok(chat_id) = r.get::<String, _>("chat_id").parse::<i64>() else {
-            mark_failed(pool, id, client_id, "некорректный telegram id").await;
-            failed += 1;
-            continue;
-        };
-
-        let expires: Option<chrono::DateTime<chrono::Utc>>=r.get("expires_at");
-        let message=personalize(&body,r.get("username"),r.get::<Option<&str>,_>("tariff_code").unwrap_or("—"),
-            &expires.map(|at|at.format("%d.%m.%Y").to_string()).unwrap_or_else(||"бессрочно".into()));
-        match send_one(&http, bot_token, chat_id, &message, &keyboard).await {
-            SendResult::Ok => {
-                sqlx::query(
-                    "UPDATE broadcast_deliveries SET sent_at = now()
-                      WHERE broadcast_id = $1 AND client_id = $2",
-                )
+    if !r.get::<bool, _>("recipients_prepared") {
+        let segment: serde_json::Value = r.get("segment");
+        let kind = segment["kind"].as_str().unwrap_or("all");
+        let mut tx = pool.begin().await?;
+        // API cancellation may race preparation; lock and verify before materializing.
+        let running: bool =
+            sqlx::query_scalar("SELECT status='sending' FROM broadcasts WHERE id=$1 FOR UPDATE")
                 .bind(id)
-                .bind(client_id)
-                .execute(pool)
+                .fetch_one(&mut *tx)
                 .await?;
-                sent += 1;
+        if !running {
+            return Ok(());
+        }
+        sqlx::query("INSERT INTO broadcast_deliveries(broadcast_id,client_id)
+          SELECT $1,co.id FROM client_overview co WHERE EXISTS(SELECT 1 FROM client_identities i WHERE i.client_id=co.id AND i.kind='telegram')
+          AND ($2='all' OR co.status::text=$2 OR ($2='trial' AND EXISTS(SELECT 1 FROM subscriptions su JOIN tariffs t ON t.id=su.tariff_id WHERE su.client_id=co.id AND su.is_current AND t.is_trial))) ON CONFLICT DO NOTHING")
+            .bind(id).bind(kind).execute(&mut *tx).await?;
+        sqlx::query("UPDATE broadcasts SET recipients_prepared=true,total_count=(SELECT count(*) FROM broadcast_deliveries WHERE broadcast_id=$1) WHERE id=$1").bind(id).execute(&mut *tx).await?;
+        tx.commit().await?;
+    }
+    // A removed identity cannot leave a permanent pending delivery behind.
+    sqlx::query("UPDATE broadcast_deliveries d SET error='Telegram аккаунт больше не привязан' WHERE broadcast_id=$1 AND sent_at IS NULL AND error IS NULL AND NOT EXISTS(SELECT 1 FROM client_overview co JOIN client_identities i ON i.client_id=co.id AND i.kind='telegram' WHERE co.id=d.client_id)").bind(id).execute(pool).await?;
+    let rows=sqlx::query("SELECT d.client_id,d.attempts,i.value AS chat_id,co.username,co.tariff_code,co.expires_at
+      FROM broadcast_deliveries d JOIN client_overview co ON co.id=d.client_id
+      JOIN LATERAL (SELECT value FROM client_identities WHERE client_id=d.client_id AND kind='telegram' ORDER BY id LIMIT 1) i ON true
+      WHERE d.broadcast_id=$1 AND d.sent_at IS NULL AND d.error IS NULL ORDER BY d.client_id LIMIT $2").bind(id).bind(BATCH).fetch_all(pool).await?;
+    let http = telegram_send::client()?;
+    for r in rows {
+        let running: bool =
+            sqlx::query_scalar("SELECT status='sending' FROM broadcasts WHERE id=$1")
+                .bind(id)
+                .fetch_one(pool)
+                .await?;
+        if !running {
+            break;
+        }
+        let client: i64 = r.get("client_id");
+        let expires: Option<chrono::DateTime<chrono::Utc>> = r.get("expires_at");
+        let text = telegram_send::personalize(
+            &body,
+            r.get("username"),
+            r.get::<Option<&str>, _>("tariff_code").unwrap_or("—"),
+            &expires
+                .map(|d| d.format("%d.%m.%Y").to_string())
+                .unwrap_or_else(|| "бессрочно".into()),
+        );
+        let result = match r.get::<String, _>("chat_id").parse::<i64>() {
+            Ok(chat) => telegram_send::send(&http, endpoint, token, chat, &text, &keyboard).await,
+            Err(_) => Delivery::Permanent("Некорректный Telegram ID".into()),
+        };
+        match result {
+            Delivery::Sent => {
+                sqlx::query("UPDATE broadcast_deliveries SET sent_at=now(),attempts=attempts+1 WHERE broadcast_id=$1 AND client_id=$2").bind(id).bind(client).execute(pool).await?;
+                sqlx::query("UPDATE broadcasts SET last_error=NULL,retry_at=NULL WHERE id=$1")
+                    .bind(id)
+                    .execute(pool)
+                    .await?;
             }
-            // Бот заблокирован или чат удалён — повторять бессмысленно.
-            SendResult::Permanent(err) => {
-                mark_failed(pool, id, client_id, &err).await;
-                failed += 1;
+            Delivery::Permanent(e) => failed(pool, id, client, &e).await?,
+            Delivery::Stop(e) => {
+                tracing::warn!(broadcast=id,error=%e,"рассылка остановлена");
+                sqlx::query("UPDATE broadcasts SET status='failed',last_error=$2,retry_at=NULL,finished_at=now() WHERE id=$1 AND status='sending'").bind(id).bind(e).execute(pool).await?;
+                break;
             }
-            // Лимит или сбой сети — оставляем на следующий проход.
-            SendResult::Retry(after) => {
-                tracing::warn!(broadcast = id, "притормаживаем на {after} с");
-                tokio::time::sleep(std::time::Duration::from_secs(after)).await;
+            Delivery::Retry { seconds, error } => {
+                if r.get::<i32, _>("attempts") >= 7 {
+                    failed(pool, id, client, &format!("После 8 попыток: {error}")).await?;
+                } else {
+                    sqlx::query("UPDATE broadcast_deliveries SET attempts=attempts+1 WHERE broadcast_id=$1 AND client_id=$2").bind(id).bind(client).execute(pool).await?;
+                    sqlx::query("UPDATE broadcasts SET last_error=$2,retry_at=now()+($3 * interval '1 second') WHERE id=$1 AND status='sending'").bind(id).bind(&error).bind(seconds as i64).execute(pool).await?;
+                    tracing::warn!(broadcast=id,error=%error,retry_seconds=seconds,"отложен повтор рассылки");
+                    break;
+                }
             }
         }
-        tokio::time::sleep(delay).await;
+        progress(pool, id).await?;
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
     }
-
-    sqlx::query(
-        "UPDATE broadcasts
-            SET sent_count = (SELECT count(*) FROM broadcast_deliveries
-                               WHERE broadcast_id = $1 AND sent_at IS NOT NULL),
-                failed_count = (SELECT count(*) FROM broadcast_deliveries
-                                 WHERE broadcast_id = $1 AND error IS NOT NULL)
-          WHERE id = $1",
-    )
-    .bind(id)
-    .execute(pool)
-    .await?;
-
-    tracing::info!(broadcast = id, sent, failed, "порция отправлена");
+    progress(pool, id).await?;
+    sqlx::query("UPDATE broadcasts SET status='sent',finished_at=now(),retry_at=NULL WHERE id=$1 AND status='sending' AND NOT EXISTS(SELECT 1 FROM broadcast_deliveries WHERE broadcast_id=$1 AND sent_at IS NULL AND error IS NULL)").bind(id).execute(pool).await?;
+    guard.commit().await?;
     Ok(())
 }
-
-/// Разворачивает сегмент в список получателей.
-/// Только те, у кого есть Telegram: остальным отправлять некуда.
-async fn fill_recipients(pool: &Pool, broadcast_id: i64, kind: &str) -> Result<u64> {
-    let condition = match kind {
-        "active" => "co.status = 'active'",
-        "expired" => "co.status = 'expired'",
-        "limited" => "co.status = 'limited'",
-        "trial" => "EXISTS(SELECT 1 FROM subscriptions su JOIN tariffs t ON t.id=su.tariff_id WHERE su.client_id=co.id AND su.is_current AND t.is_trial)",
-        _ => "true",
-    };
-
-    let sql = format!(
-        "INSERT INTO broadcast_deliveries (broadcast_id, client_id)
-         SELECT $1, co.id FROM client_overview co
-          WHERE {condition}
-            AND EXISTS (SELECT 1 FROM client_identities i
-                         WHERE i.client_id = co.id AND i.kind = 'telegram')
-         ON CONFLICT DO NOTHING"
-    );
-
-    let res = sqlx::query(&sql).bind(broadcast_id).execute(pool).await?;
-    Ok(res.rows_affected())
-}
-
-async fn mark_failed(pool: &Pool, broadcast_id: i64, client_id: i64, err: &str) {
-    let _ = sqlx::query(
-        "UPDATE broadcast_deliveries SET error = $3
-          WHERE broadcast_id = $1 AND client_id = $2",
-    )
-    .bind(broadcast_id)
-    .bind(client_id)
-    .bind(err)
-    .execute(pool)
-    .await;
-}
-
-async fn finish(pool: &Pool, id: i64) -> Result<()> {
-    sqlx::query("UPDATE broadcasts SET status = 'sent', finished_at = now() WHERE id = $1")
-        .bind(id)
-        .execute(pool)
-        .await?;
-
-    let row = sqlx::query("SELECT title, sent_count, failed_count FROM broadcasts WHERE id = $1")
-        .bind(id)
-        .fetch_one(pool)
-        .await?;
-    tracing::info!(
-        broadcast = id,
-        title = row.get::<String, _>("title"),
-        sent = row.get::<i32, _>("sent_count"),
-        failed = row.get::<i32, _>("failed_count"),
-        "рассылка завершена"
-    );
+async fn failed(pool: &Pool, id: i64, client: i64, error: &str) -> Result<()> {
+    sqlx::query("UPDATE broadcast_deliveries SET error=$3,attempts=attempts+1 WHERE broadcast_id=$1 AND client_id=$2").bind(id).bind(client).bind(error).execute(pool).await?;
     Ok(())
 }
-
-enum SendResult {
-    Ok,
-    /// Повторять бессмысленно: бот заблокирован, чат удалён и т.п.
-    Permanent(String),
-    /// Подождать столько секунд и попробовать снова.
-    Retry(u64),
-}
-
-async fn send_one(
-    http: &reqwest::Client,
-    token: &str,
-    chat_id: i64,
-    text: &str,
-    keyboard: &Option<serde_json::Value>,
-) -> SendResult {
-    let mut payload = json!({
-        "chat_id": chat_id,
-        "text": text,
-        "parse_mode": "HTML",
-        "link_preview_options": { "is_disabled": true },
-    });
-    if let Some(kb) = keyboard {
-        payload["reply_markup"] = kb.clone();
-    }
-
-    let res = http
-        .post(format!("https://api.telegram.org/bot{token}/sendMessage"))
-        .json(&payload)
-        .send()
-        .await;
-
-    let Ok(res) = res else {
-        return SendResult::Retry(3);
-    };
-
-    let status = res.status();
-    let body: serde_json::Value = res.json().await.unwrap_or(json!({}));
-
-    if body["ok"] == true {
-        return SendResult::Ok;
-    }
-
-    // 429: Telegram сам говорит, сколько ждать.
-    if status.as_u16() == 429 {
-        let after = body["parameters"]["retry_after"].as_u64().unwrap_or(5);
-        return SendResult::Retry(after.min(60));
-    }
-
-    let desc = body["description"].as_str().unwrap_or("неизвестная ошибка");
-    // 403 — заблокировали бота; 400 с «chat not found» — удалённый аккаунт.
-    if status.as_u16() == 403 || desc.contains("chat not found") || desc.contains("user is deactivated")
-    {
-        return SendResult::Permanent(desc.to_string());
-    }
-    SendResult::Retry(3)
-}
-
-fn personalize(template: &str, name: &str, tariff: &str, expires: &str) -> String {
-    let escape=|s: &str| s.replace('&',"&amp;").replace('<',"&lt;").replace('>',"&gt;").replace('"',"&quot;").replace('\'',"&#39;");
-    template.replace("{expire_date}",&escape(expires)).replace("{tariff}",&escape(tariff)).replace("{name}",&escape(name))
+async fn progress(pool: &Pool, id: i64) -> Result<()> {
+    sqlx::query("UPDATE broadcasts SET sent_count=(SELECT count(*) FROM broadcast_deliveries WHERE broadcast_id=$1 AND sent_at IS NOT NULL),failed_count=(SELECT count(*) FROM broadcast_deliveries WHERE broadcast_id=$1 AND error IS NOT NULL) WHERE id=$1").bind(id).execute(pool).await?;
+    Ok(())
 }
 
 #[cfg(test)]
-mod personalization_tests {
+mod integration {
     use super::*;
-    #[test]
-    fn substitutes_recipient_fields_and_preserves_template_html() {
-        assert_eq!(personalize("<b>{name}</b>: {tariff} до {expire_date}","Alice","PRO","20.09.2026"),"<b>Alice</b>: PRO до 20.09.2026");
+    use axum::{extract::State, http::StatusCode, routing::post, Json, Router};
+    use std::future::IntoFuture;
+    use std::sync::{
+        atomic::{AtomicU16, AtomicUsize, Ordering},
+        Arc,
+    };
+    #[derive(Clone)]
+    struct Mock {
+        code: Arc<AtomicU16>,
+        calls: Arc<AtomicUsize>,
     }
-    #[test]
-    fn recipient_data_cannot_inject_telegram_markup() {
-        assert_eq!(personalize("{name} {tariff}","<a>&\"","VIP<","—"),"&lt;a&gt;&amp;&quot; VIP&lt;");
+    async fn respond(
+        State(s): State<Mock>,
+        Json(body): Json<serde_json::Value>,
+    ) -> (StatusCode, Json<serde_json::Value>) {
+        assert_eq!(body["parse_mode"], "HTML");
+        assert!(body["chat_id"].as_i64().is_some());
+        s.calls.fetch_add(1, Ordering::SeqCst);
+        tokio::time::sleep(std::time::Duration::from_millis(30)).await;
+        let code = s.code.load(Ordering::SeqCst);
+        (
+            StatusCode::from_u16(code).unwrap(),
+            Json(match code {
+                200 => json!({"ok":true,"result":{"message_id":1}}),
+                429 => {
+                    json!({"ok":false,"error_code":429,"description":"rate limited","parameters":{"retry_after":120}})
+                }
+                _ => {
+                    json!({"ok":false,"error_code":code,"description":if code==400{"Bad Request: BUTTON_URL_INVALID"}else{"blocked"}})
+                }
+            }),
+        )
+    }
+    async fn campaign(pool: &Pool, segment: &str) -> i64 {
+        sqlx::query_scalar("INSERT INTO broadcasts(title,body,status,segment) VALUES('QA','Hello {name}','scheduled',jsonb_build_object('kind',$1::text)) RETURNING id").bind(segment).fetch_one(pool).await.unwrap()
+    }
+    async fn state(pool: &Pool, id: i64) -> (String, i32, i32) {
+        sqlx::query_as("SELECT status::text,sent_count,failed_count FROM broadcasts WHERE id=$1")
+            .bind(id)
+            .fetch_one(pool)
+            .await
+            .unwrap()
+    }
+    #[tokio::test]
+    #[ignore = "requires SN_TEST_DATABASE_URL; uses a fresh temporary schema and local Telegram mock"]
+    async fn queue_delivery_errors_retries_cancellation_and_concurrency() {
+        let url = std::env::var("SN_TEST_DATABASE_URL")
+            .expect("SN_TEST_DATABASE_URL must point to an isolated test database");
+        let base = sn_core::db::connect(&url).await.unwrap();
+        let schema = format!(
+            "sn_broadcast_test_{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        );
+        sqlx::query(&format!("CREATE SCHEMA {schema}"))
+            .execute(&base)
+            .await
+            .unwrap();
+        let options: sqlx::postgres::PgConnectOptions = url.parse().unwrap();
+        let pool = sqlx::postgres::PgPoolOptions::new()
+            .max_connections(8)
+            .connect_with(options.options([("search_path", format!("{schema},public"))]))
+            .await
+            .unwrap();
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../db/migrations");
+        let mut files = std::fs::read_dir(root)
+            .unwrap()
+            .map(|e| e.unwrap().path())
+            .filter(|p| p.extension().is_some_and(|e| e == "sql"))
+            .collect::<Vec<_>>();
+        files.sort();
+        for file in files {
+            sqlx::raw_sql(&std::fs::read_to_string(&file).unwrap())
+                .execute(&pool)
+                .await
+                .unwrap_or_else(|e| panic!("{}: {e}", file.display()));
+        }
+        sqlx::query("INSERT INTO clients(username,short_id) VALUES('QA Alice','queue_alice')")
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query("INSERT INTO client_identities(client_id,kind,value) SELECT id,'telegram','123456789' FROM clients WHERE short_id='queue_alice'").execute(&pool).await.unwrap();
+        let mock = Mock {
+            code: Arc::new(AtomicU16::new(200)),
+            calls: Arc::new(AtomicUsize::new(0)),
+        };
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let endpoint = format!("http://{}", listener.local_addr().unwrap());
+        let server = tokio::spawn(
+            axum::serve(
+                listener,
+                Router::new()
+                    .route("/botQA/sendMessage", post(respond))
+                    .with_state(mock.clone()),
+            )
+            .into_future(),
+        );
+        let id = campaign(&pool, "all").await;
+        let (a, b) = tokio::join!(
+            tick_at(&pool, "QA", &endpoint),
+            tick_at(&pool, "QA", &endpoint)
+        );
+        a.unwrap();
+        b.unwrap();
+        assert_eq!(state(&pool, id).await, ("sent".into(), 1, 0));
+        assert_eq!(mock.calls.load(Ordering::SeqCst), 1);
+        tick_at(&pool, "QA", &endpoint).await.unwrap();
+        assert_eq!(mock.calls.load(Ordering::SeqCst), 1);
+        let empty = campaign(&pool, "trial").await;
+        tick_at(&pool, "QA", &endpoint).await.unwrap();
+        assert_eq!(state(&pool, empty).await, ("sent".into(), 0, 0));
+        mock.code.store(400, Ordering::SeqCst);
+        let bad = campaign(&pool, "all").await;
+        let next = campaign(&pool, "all").await;
+        tick_at(&pool, "QA", &endpoint).await.unwrap();
+        assert_eq!(state(&pool, bad).await.0, "failed");
+        let error: String = sqlx::query_scalar("SELECT last_error FROM broadcasts WHERE id=$1")
+            .bind(bad)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert!(error.contains("BUTTON_URL_INVALID"));
+        mock.code.store(200, Ordering::SeqCst);
+        tick_at(&pool, "QA", &endpoint).await.unwrap();
+        assert_eq!(state(&pool, next).await.0, "sent");
+        mock.code.store(429, Ordering::SeqCst);
+        let retry = campaign(&pool, "all").await;
+        tick_at(&pool, "QA", &endpoint).await.unwrap();
+        let calls = mock.calls.load(Ordering::SeqCst);
+        let delay: bool = sqlx::query_scalar(
+            "SELECT retry_at>now()+interval '100 seconds' FROM broadcasts WHERE id=$1",
+        )
+        .bind(retry)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert!(delay);
+        tick_at(&pool, "QA", &endpoint).await.unwrap();
+        assert_eq!(mock.calls.load(Ordering::SeqCst), calls);
+        let other = campaign(&pool, "all").await;
+        mock.code.store(200, Ordering::SeqCst);
+        tick_at(&pool, "QA", &endpoint).await.unwrap();
+        assert_eq!(state(&pool, other).await.0, "sent");
+        sqlx::query("UPDATE broadcasts SET retry_at=now() WHERE id=$1")
+            .bind(retry)
+            .execute(&pool)
+            .await
+            .unwrap();
+        mock.code.store(403, Ordering::SeqCst);
+        tick_at(&pool, "QA", &endpoint).await.unwrap();
+        assert_eq!(state(&pool, retry).await, ("sent".into(), 0, 1));
+        let canceled = campaign(&pool, "all").await;
+        sqlx::query("UPDATE broadcasts SET status='canceled' WHERE id=$1")
+            .bind(canceled)
+            .execute(&pool)
+            .await
+            .unwrap();
+        let calls = mock.calls.load(Ordering::SeqCst);
+        tick_at(&pool, "QA", &endpoint).await.unwrap();
+        assert_eq!(mock.calls.load(Ordering::SeqCst), calls);
+        server.abort();
+        pool.close().await;
+        sqlx::query(&format!("DROP SCHEMA {schema} CASCADE"))
+            .execute(&base)
+            .await
+            .unwrap();
+        base.close().await;
     }
 }

@@ -22,9 +22,9 @@
 ```bash
 apt-get update
 apt-get install -y git curl ca-certificates
-git clone --branch v0.1.1 --depth 1 https://github.com/STEALTHNET-APP/STEALTHNET-SOFTWARE.git /root/stealthnet-installer
+git clone --branch v0.1.2 --depth 1 https://github.com/STEALTHNET-APP/STEALTHNET-SOFTWARE.git /root/stealthnet-installer
 cd /root/stealthnet-installer
-bash install.sh --version v0.1.1
+bash install.sh --version v0.1.2
 ```
 
 Откроется мастер: укажите домены панели и подписки, название сервиса, валюту и данные владельца. Установщик сам скачает готовый релиз для архитектуры сервера, проверит SHA256 и установит PostgreSQL, системные службы и HTTPS. Компилировать Rust не требуется.
@@ -86,12 +86,12 @@ stealthnet update
 Конкретный опубликованный релиз:
 
 ```bash
-make update VERSION=v0.1.1
+make update VERSION=v0.1.2
 # или
-stealthnet update --version v0.1.1
+stealthnet update --version v0.1.2
 ```
 
-Команды с `v0.1.1` иллюстрируют синтаксис; этот тег должен действительно существовать в Releases.
+Для конкретной версии используйте тег опубликованного релиза.
 
 Обновление проверяет файлы, создаёт PostgreSQL dump и копию конфигурации, применяет миграции, атомарно переключает `current`, перезапускает службы панели и проверяет их. Ноды и их Xray не перезапускаются. Их обновление выполняется отдельно из раздела нод. Кабинет и отдельный сервис подписок обновляются своими командами.
 
@@ -156,3 +156,8 @@ bash /root/stealthnet-install.sh --config /root/install.json
 Свои изображения размещайте в `/opt/stealthnet-software/shared/public/`, например `logo.svg`. При стандартной установке Caddy файл доступен как `https://panel.example.com/custom/logo.svg`; этот адрес можно указать в брендинге админки. Содержимое `shared/` не заменяется релизом и входит в резервную копию обновления. Это публичный каталог: ключи и конфигурационные файлы туда не кладут. Для внешнего прокси настройте аналогичный маршрут `/custom/`.
 
 Каталоги `releases/` и `current/web` содержат код конкретной версии: свои файлы и ручные правки туда не помещайте. Правки исходников и CSS внутри релиза не являются настройками брендинга. Старый релиз остаётся на диске; при ошибке готовности установщик возвращает прежние бинарники. Возврат бинарников не отменяет применённые миграции; для отката данных используется сохранённый dump.
+
+## Владелец и сотрудники
+
+- [Профиль администратора](sections/admin-profile.md)
+- [Первый администратор и команда](sections/team.md)

@@ -628,28 +628,44 @@ registerPage({
 registerPage({
   id:'broadcasts', title:'Рассылки', group:'Продажи', icon:'send',
   render(){
-    const st = {sent:['Отправлена','ok'], scheduled:['Запланирована','info'], draft:['Черновик','neutral'],sending:['Отправляется','info'],canceled:['Отменена','neutral']};
+    const st = {sent:['Отправлена','ok'], scheduled:['Запланирована','info'], draft:['Черновик','neutral'],sending:['Отправляется','info'],canceled:['Отменена','neutral'],failed:['Ошибка отправки','err']};
     return `
     <div class="page-head">
       <div><h1>Рассылки</h1><div class="desc">Сообщения клиентам в Telegram-бот. Сегменты, черновики, отложенная отправка и результаты доставки.</div></div>
-      <div class="actions"><button class="btn primary" id="newBc">${I('plus',14)} Новая рассылка</button></div>
+      <div class="actions"><button class="btn" onclick="refreshDB()">${I('refresh',14)} Обновить</button><button class="btn primary" id="newBc">${I('plus',14)} Новая рассылка</button></div>
     </div>
+    <div class="sub-note" id="broadcastWorker" role="status"></div>
     <div class="tbl-wrap"><table class="tbl">
       <thead><tr><th>Рассылка</th><th>Аудитория</th><th>Доставлено</th><th>Ошибки доставки</th><th>Статус</th><th>Время</th><th style="width:36px"></th></tr></thead>
       <tbody>${DB.broadcasts.map(b=>{
-        const [t,c] = st[b.status] || [b.status,'neutral'];
+        const [t,c] = b.status==='sent'&&b.failed ? ['Завершена с ошибками','warn'] : st[b.status] || [b.status,'neutral'];
         return `<tr data-brow="${b.id}">
-          <td><b>${esc(b.name)}</b></td>
+          <td><b>${esc(b.name)}</b><div class="sub-note" data-bc-error>${esc(b.lastError||'')}</div></td>
           <td><span class="chip">${esc(b.audience)}</span></td>
-          <td class="num">${b.sent?fmtN(b.sent):'—'}</td>
-          <td class="num">${fmtN(b.failed||0)}</td>
-          <td><span class="bdg ${c}"><span class="dot"></span>${t}</span></td>
+          <td class="num" data-bc-sent>${fmtN(b.sent||0)} / ${fmtN(b.total||0)}</td>
+          <td class="num" data-bc-failed>${fmtN(b.failed||0)}</td>
+          <td data-bc-status><span class="bdg ${c}"><span class="dot"></span>${t}</span></td>
           <td class="num" style="font-size:12px;color:var(--text-2)">${b.at?fmtDT(b.at):'—'}</td>
           <td><button class="btn ghost icon-only" data-bmenu="${b.id}">${I('more',14)}</button></td>
         </tr>`;}).join('')}</tbody>
     </table></div>`;
   },
   bind(root){
+    const statusText={sent:['Отправлена','ok'],scheduled:['Запланирована','info'],draft:['Черновик','neutral'],sending:['Отправляется','info'],canceled:['Отменена','neutral'],failed:['Ошибка отправки','err']};
+    const update=async()=>{if(!root.isConnected)return;try{
+      const [worker,rows]=await Promise.all([API.call('/api/broadcasts/worker'),API.call('/api/broadcasts')]);if(!root.isConnected)return;
+      const note=root.querySelector('#broadcastWorker');note.textContent=!worker.alive?'Служба рассылок не отвечает. Проверьте sn-worker.':!worker.bot_configured?'Токен Telegram-бота не настроен.':'Служба рассылок работает. Результаты обновляются автоматически.';
+      for(const r of rows){const b=DB.broadcasts.find(b=>b.id===String(r.id));if(b)Object.assign(b,{status:r.status,sent:r.sent_count,failed:r.failed_count,total:r.total_count,lastError:r.last_error,retryAt:r.retry_at});
+        const tr=root.querySelector('[data-brow="'+r.id+'"]');if(!tr)continue;
+        tr.querySelector('[data-bc-error]').textContent=r.last_error||'';
+        tr.querySelector('[data-bc-sent]').textContent=fmtN(r.sent_count)+' / '+fmtN(r.total_count);
+        tr.querySelector('[data-bc-failed]').textContent=fmtN(r.failed_count);
+        const [t,c]=r.status==='sent'&&r.failed_count ? ['Завершена с ошибками','warn'] : statusText[r.status]||[r.status,'neutral'];tr.querySelector('[data-bc-status]').innerHTML='<span class="bdg '+c+'">'+esc(t)+'</span>';
+      }translateNode(root);
+    }catch(e){if(root.isConnected)root.querySelector('#broadcastWorker').textContent=e.message;}
+      if(root.isConnected)setTimeout(update,10000);
+    };update();
+
     root.querySelector('#newBc').addEventListener('click', ()=>broadcastModal());
     // Строка открывает рассылку: она выглядела нажимаемой, но отзывалась
     // только через меню из трёх точек.
@@ -688,6 +704,7 @@ function broadcastModal(bc){
   openDrawer({
     title:isNew?'Новая рассылка':'Рассылка · '+esc(bc.name), sub:'Telegram-бот · HTML-разметка', icon:'send', size:'lg',
     body:`
+      ${!isNew?'<div id="broadcastDelivery" class="sub-note" role="status"></div>':''}
       <div class="field"><label>Название (внутреннее)</label><input class="inp" id="bcName" value="${bc?esc(bc.name):''}" placeholder="Август: скидка на годовые"></div>
       <div class="field"><label>Сегмент аудитории</label>
         <select class="inp" id="bcSeg">
@@ -705,9 +722,13 @@ function broadcastModal(bc){
         <div class="inp-row"><input class="inp" id="bcBtnText" value="${esc(bc?.buttonText||'')}" placeholder="Текст: 🔥 Продлить со скидкой"><input class="inp mono" id="bcBtnUrl" value="${esc(bc?.buttonUrl||'')}" placeholder="https://…"></div></div>
       <div class="hint">${I('info',12)} Рассылка всегда сохраняется черновиком: отправка — отдельное действие, чтобы случайное нажатие не ушло на всю базу.</div>`,
     footer:`<div class="spacer"></div><button class="btn" data-close>Закрыть</button>
-            ${editable?'<button class="btn primary" data-save>Сохранить черновик</button>':''}${!isNew&&editable?'<button class="btn" data-send>Отправить…</button>':''}`,
+            ${!isNew?'<button class="btn" data-test>Отправить тест</button>':''}${editable?'<button class="btn primary" data-save>Сохранить черновик</button>':''}${!isNew&&editable?'<button class="btn" data-send>Отправить…</button>':''}`,
     onMount(layer, close){
       layer.querySelector('#bcSeg').value=bc?.segment||'all';
+      if(!isNew){API.call('/api/broadcasts/'+bc.id).then(r=>{if(!layer.isConnected)return;const box=layer.querySelector('#broadcastDelivery');box.innerHTML=(r.last_error?'<p class="sub-note">'+esc(r.last_error)+'</p>':'')+(r.retry_at?'<p>Повтор: '+esc(fmtDT(r.retry_at))+'</p>':'')+r.errors.map(x=>'<p>'+esc(x.username)+': '+esc(x.error)+'</p>').join('');translateNode(box);}).catch(e=>{if(layer.isConnected)layer.querySelector('#broadcastDelivery').textContent=e.message;});
+        layer.querySelector('[data-test]').onclick=()=>openModal({title:'Тестовая отправка',size:'sm',body:'<form id="broadcastTestForm"><label for="broadcastTestId">Telegram ID получателя</label><input class="inp" id="broadcastTestId" inputmode="numeric" pattern="[0-9]+" required><p class="sub-note">Отправляется сохранённый текст с кнопкой. Получатель должен предварительно запустить вашего бота.</p></form>',footer:'<button class="btn" data-close>Отмена</button><button class="btn primary" type="submit" form="broadcastTestForm">Отправить тест</button>',onMount(m,done){m.querySelector('form').onsubmit=async e=>{e.preventDefault();const b=m.querySelector('[type=submit]');b.disabled=true;try{await API.call('/api/broadcasts/'+bc.id+'/send',{method:'POST',body:{test_to:Number(m.querySelector('input').value)}});done();toast('Тест доставлен');}catch(e){toast(e.message,'err');b.disabled=false;}};}});
+      }
+
       if(!editable) layer.querySelectorAll('.m-body input,.m-body select,.m-body textarea').forEach(el=>el.disabled=true);
       const save = layer.querySelector('[data-save]');
       if (save) save.addEventListener('click', async ()=>{

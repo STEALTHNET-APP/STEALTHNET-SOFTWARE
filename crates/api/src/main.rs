@@ -1,6 +1,7 @@
 //! API панели управления.
 
 mod admin_routes;
+mod team;
 mod catalog_routes;
 mod crm_routes;
 mod infra_routes;
@@ -95,6 +96,7 @@ async fn main() -> Result<()> {
         .merge(cabinet::routes())
         .merge(sub_admin::sub_admin_routes())
         .merge(admin_routes::admin_routes())
+        .merge(team::routes())
         .merge(passkeys::passkey_routes())
         // Паника в обработчике не должна рвать соединение — отдаём 500.
         .layer(CatchPanicLayer::new())

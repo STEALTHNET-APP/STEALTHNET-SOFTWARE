@@ -21,3 +21,8 @@
 ## Связанные инструкции
 
 [installation](../installation.md) · [subscription-installation](../subscription-installation.md) · [backup-restore](../backup-restore.md)
+
+## Владелец и сотрудники
+
+- [Профиль администратора](admin-profile.md)
+- [Первый администратор и команда](team.md)

@@ -591,79 +591,6 @@ registerPage({
   async bind(root){
     bindSubService(root);
 
-    // ── Безопасность ──
-    const loadSec = async () => {
-      try {
-        const [sess, pk] = await Promise.all([
-          API.call('/api/admin/sessions'), API.call('/api/admin/passkeys')]);
-        root.querySelector('#secSess').textContent =
-          sess.length + (sess.length === 1 ? ' устройство' : ' устройств');
-        const pkList = Array.isArray(pk) ? pk : (pk && pk.items) || [];
-        root.querySelector('#secPk').textContent = !passkeysSupported()
-          ? 'браузер не умеет'
-          : pkList.length ? pkList.length + ' ключей' : 'ключей нет';
-        const t = await API.call('/api/admin/totp');
-        const cb = root.querySelector('#sec2fa');
-        cb.checked = t.enabled;
-        root.querySelector('#sec2faNote').textContent = t.enabled
-          ? 'Включена — код запрашивается при каждом входе'
-          : 'Код из приложения-аутентификатора при каждом входе';
-      } catch(e){ /* блок необязателен: остальная страница должна работать */ }
-    };
-
-    root.querySelector('#sec2fa').addEventListener('change', async e=>{
-      const on = e.target.checked;
-      // Возвращаем тумблер обратно: он отражает состояние, а меняется
-      // оно только после подтверждения кодом.
-      e.target.checked = !on;
-      if (on) totpSetupModal(loadSec); else totpDisableModal(loadSec);
-    });
-
-    root.querySelector('#secPwd').addEventListener('click', ()=>openModal({
-      title:'Смена пароля', icon:'lock', size:'sm',
-      body:`
-        <div class="field"><label>Текущий пароль <span class="req">*</span></label>
-          <input class="inp" type="password" id="pwCur" autocomplete="current-password">
-          <div class="hint">Спрашиваем его затем, что перехваченная сессия иначе позволила бы сменить пароль и запереть вас снаружи.</div></div>
-        <div class="field"><label>Новый пароль <span class="req">*</span></label>
-          <input class="inp" type="password" id="pwNew" autocomplete="new-password"></div>
-        <div class="field"><label>Ещё раз</label>
-          <input class="inp" type="password" id="pwNew2" autocomplete="new-password"></div>
-        <div class="hint">${I('info',12)} Все остальные сессии будут закрыты: если пароль меняют из-за утечки, оставлять чужую сессию живой нельзя.</div>`,
-      footer:`<div class="spacer"></div><button class="btn" data-close>Отмена</button>
-              <button class="btn primary" data-save>Сменить</button>`,
-      onMount(layer, close){
-        layer.querySelector('[data-save]').addEventListener('click', async ()=>{
-          const cur = layer.querySelector('#pwCur').value;
-          const n1 = layer.querySelector('#pwNew').value;
-          const n2 = layer.querySelector('#pwNew2').value;
-          if (n1.length < 10) { toast('Новый пароль короче 10 символов', 'err'); return; }
-          if (n1 !== n2) { toast('Пароли не совпадают', 'err'); return; }
-          try {
-            await API.call('/api/admin/password', { method:'POST', body:{ current: cur, new_password: n1 } });
-            close();
-            toast('Пароль изменён, остальные сессии закрыты');
-            await loadSec();
-          } catch(e){ toast(e.message, 'err'); }
-        });
-      }
-    }));
-
-    root.querySelector('#secKill').addEventListener('click', ()=>confirmModal({
-      title:'Завершить остальные сессии?',
-      text:'Все входы, кроме текущего, будут закрыты. Ваша сессия останется — иначе вы выкинули бы сами себя.',
-      okText:'Завершить',
-      onOk:async ()=>{
-        try {
-          const r = await API.call('/api/admin/sessions', { method:'DELETE' });
-          toast(r.closed ? `Закрыто сессий: ${r.closed}` : 'Других сессий не было');
-          await loadSec();
-        } catch(e){ toast('Не получилось: '+e.message, 'err'); }
-      }
-    }));
-
-    root.querySelector('#pkBtn').addEventListener('click', ()=>passkeysDrawer(loadSec));
-
     // ── API-токены ──
     const loadTokens = async () => {
       let list = [];
@@ -758,7 +685,7 @@ registerPage({
           Настройки Telegram находятся в разделе «Телеграм-бот». Статус платёжного модуля здесь показывает наличие настроек и включение; успешную оплату проверяют по платежам.</div>`;
     };
 
-    await Promise.all([loadSec(), loadTokens(), loadIntegrations()]);
+    await Promise.all([bindAdminSecurity(root), loadTokens(), loadIntegrations()]);
   }
 });
 
@@ -1089,4 +1016,82 @@ function passkeysDrawer(onChange){
       await draw();
     }
   });
+}
+
+async function bindAdminSecurity(root) {
+    // ── Безопасность ──
+    const loadSec = async () => {
+      try {
+        const [sess, pk] = await Promise.all([
+          API.call('/api/admin/sessions'), API.call('/api/admin/passkeys')]);
+        root.querySelector('#secSess').textContent =
+          String(sess.length);
+        const pkList = Array.isArray(pk) ? pk : (pk && pk.items) || [];
+        root.querySelector('#secPk').textContent = !passkeysSupported()
+          ? 'браузер не умеет'
+          : pkList.length ? pkList.length + ' ключей' : 'ключей нет';
+        const t = await API.call('/api/admin/totp');
+        const cb = root.querySelector('#sec2fa');
+        cb.checked = t.enabled;
+        root.querySelector('#sec2faNote').textContent = t.enabled
+          ? 'Включена — код запрашивается при каждом входе'
+          : 'Код из приложения-аутентификатора при каждом входе';
+      } catch(e){ root.querySelector('#sec2faNote').textContent = e.message; }
+    };
+
+    root.querySelector('#sec2fa').addEventListener('change', async e=>{
+      const on = e.target.checked;
+      // Возвращаем тумблер обратно: он отражает состояние, а меняется
+      // оно только после подтверждения кодом.
+      e.target.checked = !on;
+      if (on) totpSetupModal(loadSec); else totpDisableModal(loadSec);
+    });
+
+    root.querySelector('#secPwd').addEventListener('click', ()=>openModal({
+      title:'Смена пароля', icon:'lock', size:'sm',
+      body:`
+        <div class="field"><label>Текущий пароль <span class="req">*</span></label>
+          <input class="inp" type="password" id="pwCur" autocomplete="current-password">
+          <div class="hint">Спрашиваем его затем, что перехваченная сессия иначе позволила бы сменить пароль и запереть вас снаружи.</div></div>
+        <div class="field"><label>Новый пароль <span class="req">*</span></label>
+          <input class="inp" type="password" id="pwNew" autocomplete="new-password"></div>
+        <div class="field"><label>Ещё раз</label>
+          <input class="inp" type="password" id="pwNew2" autocomplete="new-password"></div>
+        <div class="hint">${I('info',12)} Все остальные сессии будут закрыты: если пароль меняют из-за утечки, оставлять чужую сессию живой нельзя.</div>`,
+      footer:`<div class="spacer"></div><button class="btn" data-close>Отмена</button>
+              <button class="btn primary" data-save>Сменить</button>`,
+      onMount(layer, close){
+        layer.querySelector('[data-save]').addEventListener('click', async ()=>{
+          const cur = layer.querySelector('#pwCur').value;
+          const n1 = layer.querySelector('#pwNew').value;
+          const n2 = layer.querySelector('#pwNew2').value;
+          if (n1.length < 10) { toast('Новый пароль короче 10 символов', 'err'); return; }
+          if (n1 !== n2) { toast('Пароли не совпадают', 'err'); return; }
+          try {
+            await API.call('/api/admin/password', { method:'POST', body:{ current: cur, new_password: n1 } });
+            close();
+            toast('Пароль изменён, остальные сессии закрыты');
+            await loadSec();
+          } catch(e){ toast(e.message, 'err'); }
+        });
+      }
+    }));
+
+    root.querySelector('#secKill').addEventListener('click', ()=>confirmModal({
+      title:'Завершить остальные сессии?',
+      text:'Все входы, кроме текущего, будут закрыты. Ваша сессия останется — иначе вы выкинули бы сами себя.',
+      okText:'Завершить',
+      onOk:async ()=>{
+        try {
+          const r = await API.call('/api/admin/sessions', { method:'DELETE' });
+          toast(r.closed ? `Закрыто сессий: ${r.closed}` : 'Других сессий не было');
+          await loadSec();
+        } catch(e){ toast('Не получилось: '+e.message, 'err'); }
+      }
+    }));
+
+    root.querySelector('#pkBtn').addEventListener('click', ()=>passkeysDrawer(loadSec));
+
+
+    await loadSec();
 }

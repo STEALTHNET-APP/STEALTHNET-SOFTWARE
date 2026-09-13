@@ -21,3 +21,8 @@ The customer website is installed separately on its own domain. Rotating a servi
 ## Related guides
 
 [installation](../installation.md) · [subscription-installation](../subscription-installation.md) · [backup-restore](../backup-restore.md)
+
+## Owner and teammates
+
+- [Admin profile](admin-profile.md)
+- [First owner and team](team.md)

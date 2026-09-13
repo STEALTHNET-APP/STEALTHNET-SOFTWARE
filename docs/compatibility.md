@@ -4,7 +4,7 @@
 
 ## Verified clean-system runs / Проверки на чистых системах
 
-2026-09-13 · local release artifacts v0.1.1 · isolated KVM guests · real systemd, APT, PostgreSQL and Caddy. / Локальные релизные пакеты, изолированные VM, настоящие службы и зависимости.
+2026-09-13 · development artifacts before publication · isolated KVM guests · real systemd, APT, PostgreSQL and Caddy. / Локальные релизные пакеты, изолированные VM, настоящие службы и зависимости.
 
 | OS / ОС | Architecture | Install / Установка | Update / Обновление | PostgreSQL | Migrations |
 |---|---|---|---|---|---|
@@ -22,7 +22,7 @@ Each run checked automatic dependency installation, the application/database con
 - amd64 and arm64 binaries were built and checked as Linux ELF. ARM VM installation has not yet been run. / Бинарники обеих архитектур собраны; установка в ARM-VM ещё не проверена.
 - Upgrade tests used a synthetic v0.1.2 package label for the same development source. This is not a public v0.1.2 release or a test across future schema changes. / Тестовый тег v0.1.2 использован только для проверки механизма обновления; это не опубликованный релиз.
 - VM HTTPS used Caddy's trusted internal CA without disabling certificate verification. Public ACME issuance was not exercised by these VM tests. / Публичный выпуск ACME-сертификата не является частью этих VM-проверок.
-- Download from the first public GitHub Release remains pending publication. / Загрузка первого публичного релиза будет проверена после его публикации.
+- Published v0.1.1 was installed through `git clone` and the public GitHub release on a clean Ubuntu 26.04 amd64 VM: all 45 migrations, dependencies, API, subscriptions and HTTPS passed. `make update VERSION=v0.1.1` passed. A synthetic next version with an additional migration preserved the database, credentials, branding, custom logo and an unrelated Caddy site; its backup was checked. / Публичный v0.1.1 проверен через `git clone` на чистой Ubuntu 26.04 amd64: установка, 45 миграций, зависимости, API, подписки и HTTPS работают. Проверены `make update VERSION=v0.1.1` и переход на тестовую следующую версию с миграцией, сохранением базы, ключей, брендинга, логотипа и постороннего сайта Caddy, включая резервную копию.
 
 ## Image sources / Источники образов
 

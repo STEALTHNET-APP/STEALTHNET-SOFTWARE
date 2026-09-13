@@ -47,6 +47,24 @@ async fn main() -> Result<()> {
         });
     }
 
+    // Broadcast delivery has its own loop: slow reminder/payment requests must
+    // never block campaigns. A separate heartbeat is visible in the panel.
+    {
+        let pool=pool.clone(); let token=bot_token.clone();
+        tokio::spawn(async move {
+            let mut timer=tokio::time::interval(std::time::Duration::from_secs(5));
+            timer.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+            loop {
+                timer.tick().await;
+                let _=sqlx::query("INSERT INTO service_heartbeats(service,details) VALUES('broadcasts',$1) ON CONFLICT(service) DO UPDATE SET last_seen_at=now(),details=EXCLUDED.details")
+                    .bind(json!({"bot_configured":token.is_some()})).execute(&pool).await;
+                if let Some(token)=&token {
+                    if let Err(e)=broadcast::tick(&pool,token).await {tracing::error!(error=%e,"рассылка");}
+                }
+            }
+        });
+    }
+
     let mut ticker = tokio::time::interval(std::time::Duration::from_secs(TICK_SECS));
     loop {
         ticker.tick().await;
@@ -79,10 +97,7 @@ async fn main() -> Result<()> {
                 tracing::error!(error = %e, "напоминания об окончании");
                 let _=sn_core::alerts::incident(&pool,"job:notify_expiring","Напоминания клиентам",Some("Фоновая задача завершилась с ошибкой. Подробности в журнале сервиса.")).await;
             } else { let _=sn_core::alerts::incident(&pool,"job:notify_expiring","Напоминания клиентам",None).await; }
-            if let Err(e) = broadcast::tick(&pool, token).await {
-                tracing::error!(error = %e, "рассылка");
-                let _=sn_core::alerts::incident(&pool,"job:broadcast_tick","Рассылки",Some("Фоновая задача завершилась с ошибкой. Подробности в журнале сервиса.")).await;
-            } else { let _=sn_core::alerts::incident(&pool,"job:broadcast_tick","Рассылки",None).await; }
+
         }
         if let Err(e) = autorenew::tick(&pool, &payments, bot_token.as_deref()).await {
             tracing::error!(error = %e, "автопродление");

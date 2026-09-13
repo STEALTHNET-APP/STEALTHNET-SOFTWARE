@@ -605,7 +605,7 @@ async fn sessions_list(
     let session = current_session_hash(&headers).unwrap_or_default();
     let rows = sqlx::query(
         "SELECT id, ip::text AS ip, user_agent, created_at, expires_at, token_hash
-           FROM admin_sessions WHERE admin_id = $1 ORDER BY created_at DESC",
+           FROM admin_sessions WHERE admin_id = $1 AND expires_at>now() ORDER BY created_at DESC",
     )
     .bind(admin.id)
     .fetch_all(&st.pool)

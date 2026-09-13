@@ -920,3 +920,15 @@ Object.assign(DICT, {
   'Потребление по дням и серверам': 'Usage by day and server',
   'Работает': 'Running'
 });
+
+Object.assign(DICT, {
+"Команда и доступ":"Team and access","Мой профиль":"My profile","Аккаунт":"Account",
+"Ошибка отправки":"Delivery error","Служба рассылок не отвечает. Проверьте sn-worker.":"Broadcast worker is unavailable. Check sn-worker.",
+"Токен Telegram-бота не настроен.":"Telegram bot token is not configured.",
+"Служба рассылок работает. Результаты обновляются автоматически.":"Broadcast worker is running. Results refresh automatically.",
+"Отправить тест":"Send test","Тестовая отправка":"Test delivery","Telegram ID получателя":"Recipient Telegram ID",
+"Отправляется сохранённый текст с кнопкой. Получатель должен предварительно запустить вашего бота.":"Sends the saved text and button. The recipient must start your bot first.",
+"Тест доставлен":"Test delivered","Повтор:":"Retry:"
+});
+
+DICT['Завершена с ошибками']='Completed with errors';

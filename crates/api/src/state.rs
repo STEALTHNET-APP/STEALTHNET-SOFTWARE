@@ -64,6 +64,7 @@ fn under(path: &str, root: &str) -> bool { path == root || path.strip_prefix(roo
 
 pub fn role_allows(role: &str, method: &str, path: &str) -> bool {
     if !sn_core::auth::valid_role(role) { return false; }
+    if under(path, "/api/team") { return role == "owner"; }
     // These handlers operate only on the authenticated person's own account.
     if under(path, "/api/admin") || path == "/api/auth/me" { return true; }
     match role {
@@ -87,7 +88,7 @@ pub fn role_allows(role: &str, method: &str, path: &str) -> bool {
 
 fn token_allows(scopes: &[String], method: &str, path: &str) -> bool {
     // A service integration must never turn its token into account credentials.
-    if path.split('/').any(|p|p=="cabinet-code") || under(path, "/api/admin") || under(path, "/api/tokens") || (under(path, "/api/auth") && path != "/api/auth/me") { return false; }
+    if path.split('/').any(|p|p=="cabinet-code") || under(path, "/api/admin") || under(path, "/api/team") || under(path, "/api/tokens") || (under(path, "/api/auth") && path != "/api/auth/me") { return false; }
     if scopes.iter().any(|s| !matches!(s.as_str(), "read" | "write")) { return false; }
     // Legacy empty scopes were not usable before token authentication existed.
     // Start them with read access; write access must be explicitly requested.
@@ -99,6 +100,7 @@ mod tests {
     use super::*;
     #[test]
     fn readonly_and_unknown_roles_cannot_change_panel_data() {
+        for role in ["admin", "support", "readonly"] { for method in ["GET", "POST", "PATCH", "DELETE"] { assert!(!role_allows(role, method, "/api/team/1")); } }
         for method in ["POST", "PATCH", "PUT", "DELETE"] {
             assert!(!role_allows("readonly", method, "/api/settings"));
             assert!(!role_allows("viewer-typo", method, "/api/admin/password"));
@@ -121,7 +123,7 @@ mod tests {
         assert!(!token_allows(&[], "POST", "/api/clients"));
         assert!(!token_allows(&["read".into()], "DELETE", "/api/clients/1"));
         assert!(token_allows(&["write".into()], "PATCH", "/api/clients/1"));
-        for path in ["/api/admin/password", "/api/admin/totp/setup", "/api/tokens", "/api/tokens/1", "/api/clients/1/cabinet-code", "/api/clients/1/cabinet-code/reset"] {
+        for path in ["/api/team", "/api/team/1/password", "/api/admin/password", "/api/admin/totp/setup", "/api/tokens", "/api/tokens/1", "/api/clients/1/cabinet-code", "/api/clients/1/cabinet-code/reset"] {
             assert!(!token_allows(&["read".into(), "write".into()], "POST", path));
         }
         assert!(!token_allows(&["unknown".into()], "GET", "/api/clients"));

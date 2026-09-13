@@ -607,8 +607,10 @@ let authed = false;   // до проверки токена считаем, чт
 
 function navigate(id){ location.hash = '#/' + id; }
 function pageAllowed(id) {
+  if (id==='team') return DB.admin?.role==='owner';
+  if (id==='admin-profile') return true;
   if (DB.admin?.role !== 'support') return true;
-  return ['home','users','support','nodes','nodes-metrics','nodes-stats','payments','tariffs','hwid-inspector','srh-inspector','sessions','torrent-reports','http-stats','settings','login','404'].includes(id);
+  return ['home','users','support','nodes','nodes-metrics','nodes-stats','payments','tariffs','hwid-inspector','srh-inspector','sessions','torrent-reports','http-stats','login','404'].includes(id);
 }
 function route(){
   const id = (location.hash || '#/home').slice(2).split('?')[0] || 'home';
@@ -689,8 +691,9 @@ function renderShell(page){
   if (typeof PanelRelease !== 'undefined') PanelRelease.mount();
   document.getElementById('sideUser').addEventListener('click', e=>{
     menu(e.currentTarget, [
-      {label:'Профиль администратора', icon:'user', onClick:()=>navigate('settings')},
-      {label:'Настройки системы', icon:'settings', onClick:()=>navigate('settings')},
+      {label:'Профиль администратора', icon:'user', onClick:()=>navigate('admin-profile')},
+      ...(DB.admin?.role==='owner' ? [{label:currentLang()==='en'?'Team and access':'Команда и доступ',icon:'users2',onClick:()=>navigate('team')}] : []),
+      ...(DB.admin?.role==='owner'||DB.admin?.role==='admin' ? [{label:'Настройки системы', icon:'settings', onClick:()=>navigate('settings')}] : []),
       '-',
       {label:'Выйти', icon:'logout', danger:true, onClick:async ()=>{ await API.logout(); API.setToken(null); authed=false; navigate('login'); toast('Вы вышли из системы','info'); }},
     ]);
@@ -704,7 +707,7 @@ function renderShell(page){
   const head=main.querySelector('.page-head');
   if (DB.admin?.role === 'readonly' || DB.admin?.role === 'support') {
     const note=document.createElement('div'); note.className='sub-note'; note.setAttribute('role','status');
-    note.textContent=DB.admin.role==='readonly' ? 'Режим просмотра. Изменение данных недоступно; безопасность своего аккаунта можно настроить в «Настройках».' : 'Роль поддержки: просмотр клиентов и сети, заметки, теги и ответы на обращения. Привязка аккаунтов, тарифы и лимиты доступны владельцу и администратору.';
+    note.textContent=DB.admin.role==='readonly' ? 'Режим просмотра. Изменение данных недоступно; безопасность своего аккаунта можно настроить в профиле администратора.' : 'Роль поддержки: просмотр клиентов и сети, заметки, теги и ответы на обращения. Привязка аккаунтов, тарифы и лимиты доступны владельцу и администратору.';
     head?.after(note);
   }
   const failed=Object.entries(DB.loadErrors || {});

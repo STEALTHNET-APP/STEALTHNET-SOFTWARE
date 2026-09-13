@@ -59,11 +59,12 @@ pub struct Admin {
 /// способом — например ключом passkey. Пароль здесь не проверяется:
 /// вызывать эту функцию можно только после успешной проверки.
 pub async fn issue_session(pool: &Pool, admin_id: i64) -> Result<(Admin, String)> {
+    let mut tx=pool.begin().await?;
     let row: Option<(i64, String, String, bool)> = sqlx::query_as(
-        "SELECT id, username, role, is_active FROM admins WHERE id = $1",
+        "SELECT id, username, role, is_active FROM admins WHERE id = $1 FOR UPDATE",
     )
     .bind(admin_id)
-    .fetch_optional(pool)
+    .fetch_optional(&mut *tx)
     .await?;
 
     let Some((id, username, role, is_active)) = row else {
@@ -81,14 +82,15 @@ pub async fn issue_session(pool: &Pool, admin_id: i64) -> Result<(Admin, String)
     .bind(id)
     .bind(token_hash(&token))
     .bind(SESSION_TTL_DAYS.to_string())
-    .execute(pool)
+    .execute(&mut *tx)
     .await?;
 
     sqlx::query("UPDATE admins SET last_login_at = now() WHERE id = $1")
         .bind(id)
-        .execute(pool)
+        .execute(&mut *tx)
         .await?;
 
+    tx.commit().await?;
     Ok((Admin { id, username, role }, token))
 }
 
@@ -123,10 +125,16 @@ pub async fn login(
     let Some((id, username, role, hash, is_active, totp_secret)) = row else {
         return Err(Error::Unauthorized);
     };
-    let _ = hash;
     if !is_active || !valid {
         return Err(Error::Unauthorized);
     }
+
+    // Serialize session creation with staff deactivation/password changes.
+    // A password checked before a reset must not create a fresh session after it.
+    let mut tx=pool.begin().await?;
+    let current=sqlx::query_as::<_,(String,String,bool,Option<String>)>("SELECT password_hash,role,is_active,totp_secret FROM admins WHERE id=$1 FOR UPDATE")
+        .bind(id).fetch_optional(&mut *tx).await?.ok_or(Error::Unauthorized)?;
+    if !current.2 || current.0!=hash || current.1!=role || current.3!=totp_secret {return Err(Error::Unauthorized);}
 
     // Код проверяем только после пароля: иначе по ответу можно было бы
     // узнать, у кого включена двухфакторная, не зная пароля.
@@ -139,7 +147,7 @@ pub async fn login(
         let step = crate::totp::verified_step(secret, code, now)
             .ok_or_else(|| Error::bad("неверный код подтверждения"))? as i64;
         let used = sqlx::query("UPDATE admins SET totp_last_used_step=$3 WHERE id=$1 AND totp_secret=$2 AND is_active AND (totp_last_used_step IS NULL OR totp_last_used_step<$3)")
-            .bind(id).bind(secret).bind(step).execute(pool).await?;
+            .bind(id).bind(secret).bind(step).execute(&mut *tx).await?;
         if used.rows_affected() != 1 {
             return Err(Error::bad("Код уже использован. Дождитесь нового кода в приложении"));
         }
@@ -153,14 +161,15 @@ pub async fn login(
     .bind(id)
     .bind(token_hash(&token))
     .bind(SESSION_TTL_DAYS.to_string())
-    .execute(pool)
+    .execute(&mut *tx)
     .await?;
 
     sqlx::query("UPDATE admins SET last_login_at = now() WHERE id = $1")
         .bind(id)
-        .execute(pool)
+        .execute(&mut *tx)
         .await?;
 
+    tx.commit().await?;
     Ok((Admin { id, username, role }, token))
 }
 

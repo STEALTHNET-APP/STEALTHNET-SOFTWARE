@@ -27,3 +27,5 @@ pub mod telegram_client;
 pub mod alerts;
 
 pub mod profile_workflow;
+
+pub mod telegram_send;

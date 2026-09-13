@@ -53,6 +53,9 @@ async fn login(
     crate::security::auth_attempt(&st, &headers, peer.ip(), Some(&body.username)).await?;
     let (admin, token) =
         sn_core::auth::login(&st.pool, &body.username, &body.password, body.code.as_deref()).await?;
+    let ip=crate::admin_routes::trusted_client_ip(&headers,peer.ip()).to_string();
+    let agent=headers.get("user-agent").and_then(|v|v.to_str().ok()).map(|s|s.chars().take(512).collect::<String>());
+    sqlx::query("UPDATE admin_sessions SET ip=$2::inet,user_agent=$3 WHERE token_hash=$1").bind(sn_core::auth::token_hash(&token)).bind(ip).bind(agent).execute(&st.pool).await?;
     Ok(Json(json!({ "token": token, "admin": admin })))
 }
 
