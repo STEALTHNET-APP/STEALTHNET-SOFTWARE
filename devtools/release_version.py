@@ -101,6 +101,7 @@ def planned_changes(root):
     paths.update((root / "docs/media/navigation").glob("*.svg"))
     paths.update(root.glob("*.sh"))
     paths.update((root / "deploy").glob("*.sh"))
+    paths.update((root / "web").glob("*-installation*.html"))
     changes = {}
     for path in sorted(paths):
         if path.relative_to(root).as_posix() in HISTORICAL_DOCS:

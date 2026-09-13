@@ -383,7 +383,7 @@ document.addEventListener('click', (e) => {
 function subLink(shortUuid){
   const base = (DB.subPublicUrl || '').trim();
   if (!base) return '';
-  return base.replace(/\/+$/, '') + '/s/' + shortUuid;
+  return base.replace(/\/+$/, '') + '/' + shortUuid;
 }
 
 /* ── layers: modals & drawers (stackable) ── */

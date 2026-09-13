@@ -2,7 +2,15 @@
 
 # Install the subscription page
 
-`sn-sub` serves both the connection page and client configurations at `/s/ID`. A browser receives instructions and apps; a VPN client receives the selected configuration format. Purchases take place in the bot and customer website/Mini App.
+`sn-sub` serves both the connection page and client configurations at `/ID`. A browser receives instructions and apps; a VPN client receives the selected configuration format. Purchases take place in the bot and customer website/Mini App.
+
+## Language and short links
+
+Customer links use `https://sub.example.com/ID`. Existing `/s/ID` links continue to work without redirects or re-importing subscriptions. QR codes, the bot, customer portal and Mini App use the short URL.
+
+The connection page supports Russian and English. The **RU / EN** button at the top changes the language and remembers it on this domain. The first visit follows the browser language; use `?lang=en` or `?lang=ru` to set a specific link’s language. Page language does not change the configuration imported by VPN apps. Plan names, location names and custom owner messages remain as entered by the owner.
+
+For separate servers, update `sn-sub` on the subscription server to **v0.1.9 or later** before updating the panel, which will start generating short links. Existing links keep working after the update. Standalone service update instructions are below.
 
 ## Choose hosting
 
@@ -13,7 +21,7 @@
 | Service key | Not required | Required |
 | Database exposure | Local only | No database credentials or open database port |
 
-Use different domains for panel, subscription service and customer website. Configure full HTTPS origins under **Settings → Subscription service**, without `/s/ID`, credentials or query parameters.
+Use different domains for panel, subscription service and customer website. Configure full HTTPS origins under **Settings → Subscription service**, without `/ID`, credentials or query parameters.
 
 ## On the panel server
 
@@ -63,7 +71,19 @@ curl -fsS https://sub.example.com/ready
 
 The service key stays in `/etc/sn-sub/env`, not a publicly readable unit file. Separate instances share the project’s active key. Rotating it requires updating `SUB_SERVICE_TOKEN` on every separate instance and restarting sn-sub. Never disable HTTPS certificate verification.
 
-Use the update command in the installation instructions for the appropriate deployment. Check readiness after updating. Do not replace a systemd service with Compose instructions accidentally.
+For a local installation, update the panel with `make update`; it updates the subscription service too. For a separate server, update the subscription service first, then the panel. Run as root on the subscription server:
+
+```bash
+curl --proto '=https' --tlsv1.2 -fsSL https://raw.githubusercontent.com/STEALTHNET-APP/STEALTHNET-SOFTWARE/v0.1.9/web/update-sub.sh -o /root/stealthnet-update-sub.sh
+case "$(uname -m)" in
+  x86_64) SN_SUB_ARCH=amd64 ;;
+  aarch64|arm64) SN_SUB_ARCH=arm64 ;;
+  *) echo 'Unsupported architecture'; exit 1 ;;
+esac
+SUB_BINARY_URL="https://github.com/STEALTHNET-APP/STEALTHNET-SOFTWARE/releases/download/v0.1.9/sn-sub-linux-$SN_SUB_ARCH" bash /root/stealthnet-update-sub.sh
+```
+
+The updater preserves `/etc/sn-sub/env`, replaces the binary atomically and checks readiness. If startup fails, it restores the previous binary.
 
 Finally, open a real active customer’s subscription link in a browser and import it into the intended VPN app. Test platform selection, install/download action, deep-link import, copy/QR, then a real connection. `/health` checks the process; `/ready` checks its data source. Neither proves a VPN tunnel works.
 

@@ -1,5 +1,13 @@
 (function(){
   'use strict';
+  var lang=document.documentElement.lang==='en'?'en':'ru';
+  function text(ru,en){return lang==='en'?en:ru;}
+  var languageSwitch=document.getElementById('languageSwitch');
+  if(languageSwitch)languageSwitch.addEventListener('click',function(){
+    var next=lang==='ru'?'en':'ru';
+    document.cookie='sn.sub.lang='+next+'; Path=/; Max-Age=31536000; SameSite=Lax'+(location.protocol==='https:'?'; Secure':'');
+    var url=new URL(location.href);url.searchParams.set('lang',next);location.assign(url.href);
+  });
   var themeMode='auto',systemTheme=matchMedia('(prefers-color-scheme:dark)');
   try{themeMode=localStorage.getItem('sn.app.theme')||'auto';}catch(_){}
   if(!['auto','light','dark'].includes(themeMode))themeMode='auto';
@@ -42,11 +50,11 @@
     choices.forEach(function(c){c.setAttribute('aria-pressed',String(c===choice));});
     picker.querySelector('.app-icon').replaceWith(choice.querySelector('.app-icon').cloneNode(true));
     picker.querySelector('.app-label b').textContent=choice.querySelector('.app-label b').textContent;
-    picker.setAttribute('aria-label','Выбрать приложение. Сейчас '+choice.querySelector('.app-label b').textContent);
+    picker.setAttribute('aria-label',text('Выбрать приложение. Сейчас ','Choose an app. Current app: ')+choice.querySelector('.app-label b').textContent);
     var name=choice.querySelector('.app-label b').textContent;
     var installHelp=document.querySelector('[data-help-install]'),importHelp=document.querySelector('[data-help-import]');
-    if(installHelp)installHelp.textContent=app.querySelector('.install')?'Нажмите «Установить '+name+'» на главном экране и установите приложение со страницы загрузки.':'Установите '+name+' из официального источника. Если нужна ссылка на загрузку, обратитесь в поддержку.';
-    if(importHelp)importHelp.textContent=app.querySelector('[data-import]')?'Вернитесь сюда и нажмите «Добавить подписку». Если приложение не открылось, скопируйте ссылку в «Ссылка и QR» и вставьте её в разделе импорта приложения.':'Нажмите «Скопировать ссылку» на главном экране, откройте импорт из буфера обмена в '+name+' и подтвердите добавление профиля.';
+    if(installHelp)installHelp.textContent=app.querySelector('.install')?text('Нажмите «Установить '+name+'» на главном экране и установите приложение со страницы загрузки.','Tap “Install '+name+'” on the main screen and install the app from the download page.'):text('Установите '+name+' из официального источника. Если нужна ссылка на загрузку, обратитесь в поддержку.','Install '+name+' from its official source. Ask support if you need the download link.');
+    if(importHelp)importHelp.textContent=app.querySelector('[data-import]')?text('Вернитесь сюда и нажмите «Добавить подписку». Если приложение не открылось, скопируйте ссылку в «Ссылка и QR» и вставьте её в разделе импорта приложения.','Return here and tap “Add subscription”. If the app does not open, copy the link from “Link and QR” and paste it into the app’s import screen.'):text('Нажмите «Скопировать ссылку» на главном экране, откройте импорт из буфера обмена в '+name+' и подтвердите добавление профиля.','Tap “Copy link” on the main screen, import from the clipboard in '+name+', and confirm adding the profile.');
     var guide=document.getElementById('selectedGuide');
     if(!guide){guide=document.createElement('div');guide.id='selectedGuide';guide.className='selected-guide';document.querySelector('#helpSheet .sheet-body').prepend(guide);}
     guide.replaceChildren(app.querySelector('.app-help').content.cloneNode(true));
@@ -70,7 +78,7 @@
   }
   function copyLink(event){
     var button=event.currentTarget;
-    function markCopied(){button.classList.add('copied');button.innerHTML='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 4 4L19 6"/></svg><span>Ссылка скопирована</span>';}
+    function markCopied(){button.classList.add('copied');button.innerHTML='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 4 4L19 6"/></svg><span>'+text('Ссылка скопирована','Link copied')+'</span>';}
 
     var input=document.getElementById('subscriptionLink');if(!input)return;
     function fallback(){
@@ -78,14 +86,14 @@
       var copied=false;try{copied=document.execCommand('copy');}catch(_){}
       var result=document.getElementById('copyResult');
       if(!result){result=document.createElement('p');result.id='copyResult';result.className='privacy-note';result.setAttribute('role','status');input.after(result);}
-      result.textContent=copied?'Ссылка скопирована.':'Ссылка выделена. Удерживайте её и выберите «Скопировать».';if(copied)markCopied();
+      result.textContent=copied?text('Ссылка скопирована.','Link copied.'):text('Ссылка выделена. Удерживайте её и выберите «Скопировать».','Link selected. Press and hold it, then choose “Copy”.');if(copied)markCopied();
     }
     if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(input.value).then(function(){markCopied();
       var sheet=document.getElementById('linkSheet');
-      if(sheet.open){var result=document.getElementById('copyResult');if(!result){result=document.createElement('p');result.id='copyResult';result.className='privacy-note';result.setAttribute('role','status');input.after(result);}result.textContent='Ссылка скопирована.';}
-      else notify('Ссылка скопирована. Добавьте её в VPN-приложение.');
+      if(sheet.open){var result=document.getElementById('copyResult');if(!result){result=document.createElement('p');result.id='copyResult';result.className='privacy-note';result.setAttribute('role','status');input.after(result);}result.textContent=text('Ссылка скопирована.','Link copied.');}
+      else notify(text('Ссылка скопирована. Добавьте её в VPN-приложение.','Link copied. Add it to your VPN app.'));
     },fallback);}else fallback();
   }
   document.querySelectorAll('[data-copy]').forEach(function(button){button.addEventListener('click',copyLink);});
-  document.querySelectorAll('[data-import]').forEach(function(button){button.addEventListener('click',function(){notify('Подтвердите добавление подписки в приложении.');});});
+  document.querySelectorAll('[data-import]').forEach(function(button){button.addEventListener('click',function(){notify(text('Подтвердите добавление подписки в приложении.','Confirm adding the subscription in your app.'));});});
 })();

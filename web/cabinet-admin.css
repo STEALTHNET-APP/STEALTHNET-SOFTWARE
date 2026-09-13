@@ -6,3 +6,5 @@
 
 .addon-scope{padding:14px 16px;margin:14px 0;border:1px solid var(--border);border-left:3px solid var(--accent);border-radius:12px;background:var(--surface)}
 .addon-scope p{margin:6px 0 0;color:var(--text-2);font-size:13px;line-height:1.6}
+
+.cabinet-setup{border:1px solid var(--accent);border-left:4px solid var(--accent);background:var(--surface)}.cabinet-setup .badge{margin-bottom:12px}.cabinet-setup .actions{display:flex;flex-wrap:wrap;gap:10px;margin-top:20px}.cabinet-setup h2{margin-top:0}

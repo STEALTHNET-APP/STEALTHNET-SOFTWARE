@@ -238,7 +238,7 @@ async fn app_me(State(st): State<AppState>, customer: Customer) -> Result<Json<V
     .and_then(|v| v.as_str().map(str::to_string))
     .filter(|s| !s.is_empty())
     .or_else(|| Some(st.config.sub_public_url.clone()))
-    .map(|base| format!("{}/s/{}", base.trim_end_matches('/'), r.get::<String, _>("short_id")));
+    .map(|base| format!("{}/{}", base.trim_end_matches('/'), r.get::<String, _>("short_id")));
 
     Ok(Json(json!({
         "username":   r.get::<String, _>("username"),

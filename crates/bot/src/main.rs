@@ -335,7 +335,7 @@ fn main_menu(
             "miniapp" if st.miniapp_enabled() => st.miniapp_url().filter(|url| sn_core::bot_config::web_url(url, true))
               .map(|url| Btn::WebApp(st.miniapp_label(), url)),
             "connect" if active && st.connect_inline() => {
-                let url = format!("{}/s/{}", sub_base.trim_end_matches('/'), info.short_id);
+                let url = format!("{}/{}", sub_base.trim_end_matches('/'), info.short_id);
                 sn_core::bot_config::web_url(&url, true)
                     .then(|| Btn::WebApp(st.custom("bot.button.connect", "🔌 Подключиться"), url))
             },
@@ -650,7 +650,7 @@ async fn show_subscription(c: &Ctx<'_>, chat: i64, client_id: i64, mid: Option<i
 
     sn_core::addons::refresh(pool,client_id).await?;
     let info = sub_info(pool, client_id).await?;
-    let url = format!("{}/s/{}", cfg.sub_public_url.trim_end_matches('/'), info.short_id);
+    let url = format!("{}/{}", cfg.sub_public_url.trim_end_matches('/'), info.short_id);
 
     let text = if info.status == "active" {
         format!(
@@ -915,7 +915,7 @@ async fn on_callback(c: &Ctx<'_>, cq: &Value) -> Result<()> {
         ["app", platform] => {
             sn_core::addons::refresh(pool,client_id).await?;
     let info = sub_info(pool, client_id).await?;
-            let url = format!("{}/s/{}", cfg.sub_public_url.trim_end_matches('/'), info.short_id);
+            let url = format!("{}/{}", cfg.sub_public_url.trim_end_matches('/'), info.short_id);
             apps::show_apps(c, chat, platform, &url, Some(mid)).await
         }
         ["t", tid] => {
@@ -1255,7 +1255,7 @@ mod miniapp_tests {
 
         let подкл = найти(&b, "Подключиться").expect("подключение в меню");
         assert_eq!(подкл.1, "web_app");
-        assert!(подкл.2.contains("/s/abcd1234"), "ведёт на свою подписку: {}", подкл.2);
+        assert!(подкл.2.contains("/abcd1234"), "ведёт на свою подписку: {}", подкл.2);
     }
 
     #[test]

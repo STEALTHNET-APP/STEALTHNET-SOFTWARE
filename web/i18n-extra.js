@@ -1,5 +1,14 @@
 'use strict';
 Object.assign(DICT, {
+  "Нужна проверка": "Check required",
+  "Требуется установка": "Installation required",
+  "Кабинет не отвечает": "Customer portal is not responding",
+  "Кабинет ещё не установлен": "Customer portal is not installed yet",
+  "Сервер перестал отвечать. Откройте раздел установки и проверьте подключение. Повторно устанавливать работающий сервис не нужно.": "The server stopped responding. Open the installation section and check the connection. You do not need to reinstall a working service.",
+  "Чтобы заработали сайт, кабинет клиента и Mini App, откройте раздел «Серверы и установка», добавьте сервер и выполните установочную команду по SSH.": "To enable the website, customer portal and Mini App, open \u201cServers and installation\u201d, add a server, and run the installation command over SSH.",
+  "Проверить подключение": "Check connection",
+  "Установить кабинет": "Install customer portal",
+
   "Без профиля": "No profile",
   "Подключить сервер сейчас, выбрать конфигурацию позже. Подходит для тестовой ноды.": "Connect the server now and choose a configuration later. Suitable for a test node.",
   "Можно подключить ноду без профиля и настроить VPN позже.": "You can connect a node without a profile and configure VPN later.",

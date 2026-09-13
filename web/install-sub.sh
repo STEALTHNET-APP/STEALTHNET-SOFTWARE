@@ -108,7 +108,7 @@ $SUB_PUBLIC_URL {
 
 4. caddy validate --config /etc/caddy/Caddyfile && systemctl reload caddy
 5. curl -fsS $SUB_PUBLIC_URL/ready
-6. Откройте реальную ссылку клиента /s/ID в браузере и импортируйте её в VPN-приложение.
+6. Откройте реальную ссылку клиента /ID в браузере и импортируйте её в VPN-приложение.
 
 Публичный HTTPS ещё не проверен установщиком. Caddy и DNS настраиваются по инструкции:
 $PANEL_URL/subscription-installation.html

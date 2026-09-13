@@ -3,7 +3,7 @@ resolver = "2"
 members = ["crates/core", "crates/payments", "crates/api", "crates/sub", "crates/bot", "crates/node", "crates/worker"]
 
 [workspace.package]
-version = "0.1.8"
+version = "0.1.9"
 edition = "2021"
 license = "AGPL-3.0-only"
 

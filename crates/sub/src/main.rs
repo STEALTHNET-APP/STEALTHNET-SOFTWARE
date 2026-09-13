@@ -3,8 +3,11 @@
 
 use sn_sub::{formats,policy};
 mod page;
+mod locale;
+#[cfg(test)]
+mod http_tests;
 
-use axum::extract::{Path, State};
+use axum::extract::{Path, Query, State};
 use axum::http::{header, HeaderMap};
 use axum::response::{Html, IntoResponse, Response};
 use axum::routing::get;
@@ -114,13 +117,7 @@ async fn main() -> Result<()> {
         settings: Default::default(),
     };
 
-    let app = Router::new()
-        .route("/health", get(|| async { "ok" }))
-        .route("/ready", get(readiness))
-        .route("/fonts/roboto.ttf",get(||async{([(header::CONTENT_TYPE,"font/ttf"),(header::CACHE_CONTROL,"public, max-age=31536000, immutable")],include_bytes!("../../../web/app/fonts/roboto.ttf").as_slice())}))
-        .route("/s/{short_id}", get(subscription))
-        .route("/s/{short_id}/qr.svg", get(qr_image))
-        .with_state(state);
+    let app = subscription_router(state);
 
     let listener = tokio::net::TcpListener::bind(&config.sub_bind)
         .await
@@ -131,6 +128,19 @@ async fn main() -> Result<()> {
         .await
         .map_err(|e| Error::Internal(e.to_string()))?;
     Ok(())
+}
+
+fn subscription_router(state: SubState) -> Router {
+    Router::new()
+        .route("/health", get(|| async { "ok" }))
+        .route("/ready", get(readiness))
+        .route("/fonts/roboto.ttf",get(||async{([(header::CONTENT_TYPE,"font/ttf"),(header::CACHE_CONTROL,"public, max-age=31536000, immutable")],include_bytes!("../../../web/app/fonts/roboto.ttf").as_slice())}))
+        .route("/{short_id}", get(subscription))
+        .route("/{short_id}/qr.svg", get(qr_image))
+        // Keep existing subscriptions working without redirects or re-imports.
+        .route("/s/{short_id}", get(subscription))
+        .route("/s/{short_id}/qr.svg", get(qr_image))
+        .with_state(state)
 }
 
 /// Readiness checks the real data source, without exposing client data or credentials.
@@ -208,6 +218,7 @@ pub struct SubData {
 }
 
 async fn load(source: &Source, short_id: &str) -> Result<SubData> {
+    if short_id.is_empty() || short_id.len() > 128 || !short_id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-') { return Err(Error::NotFound); }
     match source {
         Source::Db(pool) => load_from_db(pool, short_id).await,
         Source::Api { panel_url, token, http } => load_from_api(panel_url, token, http, short_id).await,
@@ -497,7 +508,7 @@ async fn qr_image(State(st): State<SubState>, Path(short_id): Path<String>) -> R
         .map(|_| ())
         .map(|_| st.config.sub_public_url.clone())
         .unwrap_or_else(|| st.config.sub_public_url.clone());
-    let url = format!("{}/s/{}", base.trim_end_matches('/'), short_id);
+    let url = format!("{}/{}", base.trim_end_matches('/'), short_id);
 
     Ok((
         [
@@ -513,7 +524,9 @@ async fn subscription(
     State(st): State<SubState>,
     Path(short_id): Path<String>,
     headers: HeaderMap,
+    Query(language): Query<locale::LanguageQuery>,
 ) -> Result<Response> {
+    let lang = locale::Language::for_request(&language, &headers);
     let ua = headers
         .get(header::USER_AGENT)
         .and_then(|v| v.to_str().ok())
@@ -572,6 +585,10 @@ async fn subscription(
 
     let brand = cfg.brand.clone().unwrap_or_else(|| st.config.brand_name.clone());
     let mut hdrs = user_info_headers(&data, &brand, &cfg);
+    if format == Format::WebPage {
+        hdrs.insert(header::CONTENT_LANGUAGE, lang.code().parse().unwrap());
+        hdrs.insert(header::VARY, "User-Agent, Accept-Language, Cookie".parse().unwrap());
+    }
     if cfg.username_header {
         if let Ok(v) = data.username.parse() {
             hdrs.insert("x-sn-username", v);
@@ -589,8 +606,11 @@ async fn subscription(
         let reason=reasons.join("\n");
         if format == Format::WebPage {
             let apps=load_apps(&st).await;
-            let sub_url=format!("{}/s/{}",st.config.sub_public_url.trim_end_matches('/'),short_id);
-            return Ok((hdrs,Html(page::render(&data,&brand,&sub_url,&apps,&cfg.page,&reason))).into_response());
+            let sub_url=format!("{}/{}",st.config.sub_public_url.trim_end_matches('/'),short_id);
+            let fallback_template = if over_limit.is_some() { cfg.remark_devices.as_str() } else if unsupported { "Приложение не передало HWID. Используйте приложение с поддержкой идентификатора устройства." } else { match data.status.as_str() { "expired" => &cfg.remark_expired, "limited" => &cfg.remark_limited, "disabled" => &cfg.remark_disabled, _ => &cfg.remark_no_hosts } };
+            let templates = cfg.remark_lists.get(reason_key).map(|v| v.iter().map(String::as_str).collect::<Vec<_>>()).unwrap_or_else(|| vec![fallback_template]);
+            let notice = templates.iter().map(|s| fill_placeholders_dev(lang.default_text(s), &data, over_limit.map(|(u,l)| (u as i64,l as i64)))).collect::<Vec<_>>().join("\n");
+            return Ok((hdrs,Html(page::render_localized(&data,&brand,&sub_url,&apps,&cfg.page,&notice,lang))).into_response());
         }
         let stubs:Vec<_>=reasons.iter().map(|r|formats::stub_host(r)).collect();
         return Ok(render_hosts(format,&stubs,&reason,None,hdrs));
@@ -604,8 +624,8 @@ async fn subscription(
     Ok(match format {
         Format::WebPage => {
             let apps = load_apps(&st).await;
-            let sub_url = format!("{}/s/{}", st.config.sub_public_url.trim_end_matches('/'), short_id);
-            let html = page::render(&data, &brand, &sub_url, &apps, &cfg.page, "");
+            let sub_url = format!("{}/{}", st.config.sub_public_url.trim_end_matches('/'), short_id);
+            let html = page::render_localized(&data, &brand, &sub_url, &apps, &cfg.page, "", lang);
             (hdrs, Html(html)).into_response()
         }
         _ => render_hosts(format, &data.hosts, &title, template.as_deref(), hdrs),

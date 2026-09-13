@@ -407,7 +407,7 @@ async fn client_get(
     // и ссылка, собранная из переменной окружения панели, была бы мёртвой.
     let sub_base = crate::sub_service::public_sub_url(&st).await;
     out["subscription_url"] = json!(format!(
-        "{}/s/{}",
+        "{}/{}",
         sub_base.trim_end_matches('/'),
         row.get::<String, _>("short_id")
     ));
@@ -966,7 +966,7 @@ async fn client_revoke(
     Ok(Json(json!({
         "short_id": row.get::<String, _>("short_id"),
         "vpn_uuid": row.get::<uuid::Uuid, _>("vpn_uuid").to_string(),
-        "subscription_url": format!("{}/s/{}",
+        "subscription_url": format!("{}/{}",
             sub_base.trim_end_matches('/'),
             row.get::<String, _>("short_id")),
     })))

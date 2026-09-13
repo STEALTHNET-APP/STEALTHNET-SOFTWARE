@@ -20,9 +20,9 @@
 ```bash
 apt-get update
 apt-get install -y git curl ca-certificates
-git clone --branch v0.1.8 --depth 1 https://github.com/STEALTHNET-APP/STEALTHNET-SOFTWARE.git /root/stealthnet-installer
+git clone --branch v0.1.9 --depth 1 https://github.com/STEALTHNET-APP/STEALTHNET-SOFTWARE.git /root/stealthnet-installer
 cd /root/stealthnet-installer
-bash install.sh --version v0.1.8
+bash install.sh --version v0.1.9
 ```
 
 Откроется мастер: укажите домены панели и подписки, название сервиса, валюту и данные владельца. Установщик сам скачает готовый релиз для архитектуры сервера, проверит SHA256 и установит PostgreSQL, системные службы и HTTPS. Компилировать Rust не требуется.
@@ -39,7 +39,7 @@ bash install.sh --version v0.1.8
 | Поле | Пример и пояснение |
 |---|---|
 | Домен панели | `panel.example.com` — вход администратора; DNS A/AAAA на IP сервера панели |
-| Домен подписки | `sub.example.com` — адрес подключения клиентов; отдельный домен на IP выбранного сервера подписки, без `/s/ID` |
+| Домен подписки | `sub.example.com` — адрес подключения клиентов; отдельный домен на IP выбранного сервера подписки, без `/ID` |
 | Название сервиса | `My VPN` — название, которое увидят клиенты |
 | Валюта проекта | `USD`, `EUR`, `RUB`, `UAH` — код из трёх латинских букв для цен и баланса; не сумма и не символ `$`. Stars настраиваются отдельно |
 
@@ -104,9 +104,9 @@ stealthnet update
 Конкретный опубликованный релиз:
 
 ```bash
-make update VERSION=v0.1.8
+make update VERSION=v0.1.9
 # или
-stealthnet update --version v0.1.8
+stealthnet update --version v0.1.9
 ```
 
 Выбирайте существующий тег из Releases. `make update` без версии выбирает последний стабильный релиз.
@@ -125,7 +125,7 @@ stealthnet update --version v0.1.8
 
 ```bash
 cd /opt/stealthnet-software
-make update VERSION=v0.1.8
+make update VERSION=v0.1.9
 ```
 
 Обновление создаёт резервную копию и исправляет старое правило в конфигурации, созданной установщиком, сохраняя остальные настройки. После обновления перезагрузите страницу с очисткой кэша (`Ctrl+F5` / `Cmd+Shift+R`). Для своего reverse proxy используйте пути `/app` и `/app/*`, без перехвата `/app.css`. Новые установки и обновления проверяют тип и содержимое основного CSS и JavaScript перед сообщением об успехе. Страница входа показывает версию API без надписи «стенд».

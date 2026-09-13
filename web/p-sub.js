@@ -87,7 +87,7 @@ registerPage({
       if (!u) { toast('Нужен хотя бы один клиент', 'err'); return; }
       try {
         const r = await API.call('/api/sub-service');
-        window.open(r.sub_public_url.replace(/\/$/, '') + '/s/' + u.shortUuid, '_blank');
+        window.open(r.sub_public_url.replace(/\/$/, '') + '/' + u.shortUuid, '_blank');
       } catch(e){ toast('Не получилось: '+e.message, 'err'); }
     });
 
