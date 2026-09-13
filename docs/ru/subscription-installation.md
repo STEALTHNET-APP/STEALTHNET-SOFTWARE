@@ -114,13 +114,13 @@ Caddy автоматически получает и продлевает сер
 **Отдельный сервер:** сначала обновите сервис подписки, затем панель. На сервере подписки от root выполните:
 
 ```bash
-curl --proto '=https' --tlsv1.2 -fsSL https://raw.githubusercontent.com/STEALTHNET-APP/STEALTHNET-SOFTWARE/v0.2.2/web/update-sub.sh -o /root/stealthnet-update-sub.sh
+curl --proto '=https' --tlsv1.2 -fsSL https://raw.githubusercontent.com/STEALTHNET-APP/STEALTHNET-SOFTWARE/v0.2.3/web/update-sub.sh -o /root/stealthnet-update-sub.sh
 case "$(uname -m)" in
   x86_64) SN_SUB_ARCH=amd64 ;;
   aarch64|arm64) SN_SUB_ARCH=arm64 ;;
   *) echo 'Unsupported architecture'; exit 1 ;;
 esac
-SUB_BINARY_URL="https://github.com/STEALTHNET-APP/STEALTHNET-SOFTWARE/releases/download/v0.2.2/sn-sub-linux-$SN_SUB_ARCH" bash /root/stealthnet-update-sub.sh
+SUB_BINARY_URL="https://github.com/STEALTHNET-APP/STEALTHNET-SOFTWARE/releases/download/v0.2.3/sn-sub-linux-$SN_SUB_ARCH" bash /root/stealthnet-update-sub.sh
 ```
 
 Обновлятор сохраняет `/etc/sn-sub/env`, заменяет бинарник атомарно и проверяет готовность. Если новая служба не готова, возвращает предыдущий бинарник. Ключ и адреса не меняются. Повторный запуск свежего установщика вместо обновлятора остановится, чтобы не затереть рабочую службу.

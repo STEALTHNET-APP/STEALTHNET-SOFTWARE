@@ -41,6 +41,14 @@ For existing nginx or a container proxy, use `CABINET_PROXY=external` and config
 
 [Branding and translations](branding.md) · [Customer website](sections/cabinet.md) · [Add-ons](addons.md)
 
+## Revoked keys and publication settings
+
+If a server card says **Key revoked**, click **Restore key and command**. Recovery is available even when publication is disabled. Before running the command, enable publication and save settings; the command dialog links to the required switch.
+
+Revoking a key also deselects that server for Mini App. An old reference to a revoked or deleted server no longer blocks saving publication, text, or branding. After restoring and starting the portal, select an available Mini App server again. Revoking a different server preserves the current selection.
+
+If an older version reports “Кабинет не найден или его ключ отозван” (portal not found or key revoked), update the panel and reload the page. Portal data is preserved; no SQL publication switch or panel reinstall is needed.
+
 ## HTTP 400 at the first installation step
 
 “Сайт ещё не опубликован” means that customer portal publication is disabled in the panel. This applies both beside the panel and on a separate server.

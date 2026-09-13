@@ -1,5 +1,9 @@
 'use strict';
 Object.assign(DICT, {
+  "Восстановить ключ и команду": "Restore key and command",
+  "Прежний сервер Mini App недоступен. Настройки кабинета можно сохранить; для Mini App выберите доступный сервер в разделе установки.": "The previous Mini App server is unavailable. You can save portal settings; select an available server under installation to enable Mini App.",
+  "Настройки сохранены. Для Mini App выберите доступный сервер.": "Settings saved. Select an available server for Mini App.",
+  "Ключ готов. Перед запуском команды включите публикацию кабинета и сохраните настройки.": "The key is ready. Before running the command, enable portal publication and save settings.",
   "Стартовые тексты RU/EN и оформление уже подготовлены — их можно изменить. Чтобы запустить кабинет, включите публикацию и сохраните настройки. Цены и лимиты берутся из": "Starter RU/EN text and branding are ready to edit. To launch the portal, enable publication and save settings. Prices and limits come from",
   "Стартовые тексты добавлены — сохраните настройки": "Starter text added — save settings",
   "Сначала опубликуйте кабинет": "Publish the customer portal first",

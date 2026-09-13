@@ -217,14 +217,27 @@ async fn link_telegram(State(st):State<AppState>,c:Customer)->Result<Json<Value>
 async fn admin_status(_a:CurrentAdmin,State(st):State<AppState>)->Result<Json<Value>>{
     let installs:Vec<Value>=sqlx::query_scalar("SELECT jsonb_build_object('id',id,'name',name,'public_url',public_url,'server_ip',server_ip,'placement',placement,'token_prefix',token_prefix,'last_seen_at',last_seen_at,'revoked_at',revoked_at) FROM cabinet_installations ORDER BY created_at DESC").fetch_all(&st.pool).await?;
     let panel=crate::sub_service::panel_public_url_pub(&st).await;
-    let saved=settings(&st).await?;
+    let mut saved=settings(&st).await?;
+    let selection_cleared=if let Some(id)=saved["miniapp_installation_id"].as_str().filter(|s|!s.is_empty()){
+        !installs.iter().any(|i|i["id"].as_str()==Some(id)&&i["revoked_at"].is_null())
+    }else{false};
+    if selection_cleared{saved["miniapp_installation_id"]=json!("");}
     let config=starter_config(saved.clone(),&panel,&st.config.brand_name);
-    Ok(Json(json!({"defaults_applied":config!=saved,"config":config,"installations":installs,"miniapp_url":sn_core::cabinet::miniapp_url(&st.pool).await?,"panel_url":panel})))
+    Ok(Json(json!({"defaults_applied":config!=saved,"miniapp_selection_cleared":selection_cleared,"config":config,"installations":installs,"miniapp_url":sn_core::cabinet::miniapp_url(&st.pool).await?,"panel_url":panel})))
 }
-async fn admin_config(CurrentAdmin(a):CurrentAdmin,State(st):State<AppState>,Json(v):Json<Value>)->Result<Json<Value>>{
+async fn admin_config(CurrentAdmin(a):CurrentAdmin,State(st):State<AppState>,Json(mut v):Json<Value>)->Result<Json<Value>>{
     if a.role!="owner"{return Err(Error::Forbidden);}validate_config(&v)?;
-    if let Some(id)=v["miniapp_installation_id"].as_str().filter(|s|!s.is_empty()) {let exists:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM cabinet_installations WHERE id::text=$1 AND revoked_at IS NULL)").bind(id).fetch_one(&st.pool).await?;if !exists {return Err(Error::bad("Кабинет не найден или его ключ отозван"));}}
-    sqlx::query("UPDATE settings SET value=$1,updated_by=$2,updated_at=now() WHERE key='cabinet.config'").bind(v).bind(a.id).execute(&st.pool).await?;Ok(Json(json!({"ok":true})))
+    let mut tx=st.pool.begin().await?;
+    // Serialize with revocation: a stale browser must not restore a revoked selection.
+    sqlx::query("SELECT key FROM settings WHERE key='cabinet.config' FOR UPDATE").fetch_one(&mut *tx).await?;
+    let mut selection_cleared=false;
+    if let Some(id)=v["miniapp_installation_id"].as_str().filter(|s|!s.is_empty()) {
+        let exists:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM cabinet_installations WHERE id::text=$1 AND revoked_at IS NULL)").bind(id).fetch_one(&mut *tx).await?;
+        if !exists {v["miniapp_installation_id"]=json!("");selection_cleared=true;}
+    }
+    sqlx::query("UPDATE settings SET value=$1,updated_by=$2,updated_at=now() WHERE key='cabinet.config'").bind(&v).bind(a.id).execute(&mut *tx).await?;
+    tx.commit().await?;
+    Ok(Json(json!({"ok":true,"miniapp_selection_cleared":selection_cleared,"miniapp_installation_id":v["miniapp_installation_id"].as_str().unwrap_or("")})))
 }
 #[derive(Deserialize)]struct Installation{name:String,public_url:String,server_ip:String,placement:String}
 async fn create_installation(CurrentAdmin(a):CurrentAdmin,State(st):State<AppState>,Json(b):Json<Installation>)->Result<Json<Value>>{
@@ -238,7 +251,7 @@ async fn create_installation(CurrentAdmin(a):CurrentAdmin,State(st):State<AppSta
 }
 async fn install_token(CurrentAdmin(a):CurrentAdmin,State(st):State<AppState>,Path(id):Path<uuid::Uuid>)->Result<Json<Value>>{
     if a.role!="owner"{return Err(Error::Forbidden);}let token=generate_token();
-    let r=sqlx::query("UPDATE cabinet_installations SET token_hash=$2,token_prefix=$3,revoked_at=NULL WHERE id=$1").bind(id).bind(token_hash(&token)).bind(&token[..8]).execute(&st.pool).await?;if r.rows_affected()==0{return Err(Error::NotFound);}
+    let r=sqlx::query("UPDATE cabinet_installations SET token_hash=$2,token_prefix=$3,last_seen_at=CASE WHEN revoked_at IS NOT NULL THEN NULL ELSE last_seen_at END,revoked_at=NULL WHERE id=$1").bind(id).bind(token_hash(&token)).bind(&token[..8]).execute(&st.pool).await?;if r.rows_affected()==0{return Err(Error::NotFound);}
     let origin:String=sqlx::query_scalar("SELECT public_url FROM cabinet_installations WHERE id=$1").bind(id).fetch_one(&st.pool).await?;
     let panel=crate::sub_service::panel_public_url_pub(&st).await;
     let quote=|v:&str|format!("'{}'",v.replace('\'',"'\"'\"'"));
@@ -246,7 +259,14 @@ async fn install_token(CurrentAdmin(a):CurrentAdmin,State(st):State<AppState>,Pa
     Ok(Json(json!({"token":token,"command":command})))
 }
 async fn revoke_installation(CurrentAdmin(a):CurrentAdmin,State(st):State<AppState>,Path(id):Path<uuid::Uuid>)->Result<Json<Value>>{
-    if a.role!="owner"{return Err(Error::Forbidden);}let r=sqlx::query("UPDATE cabinet_installations SET revoked_at=now(),token_hash=NULL WHERE id=$1").bind(id).execute(&st.pool).await?;if r.rows_affected()==0{return Err(Error::NotFound);}Ok(Json(json!({"ok":true})))
+    if a.role!="owner"{return Err(Error::Forbidden);}
+    let mut tx=st.pool.begin().await?;
+    sqlx::query("SELECT key FROM settings WHERE key='cabinet.config' FOR UPDATE").fetch_one(&mut *tx).await?;
+    let r=sqlx::query("UPDATE cabinet_installations SET revoked_at=now(),token_hash=NULL WHERE id=$1").bind(id).execute(&mut *tx).await?;
+    if r.rows_affected()==0{return Err(Error::NotFound);}
+    sqlx::query("UPDATE settings SET value=jsonb_set(value,'{miniapp_installation_id}','\"\"'::jsonb),updated_by=$2,updated_at=now() WHERE key='cabinet.config' AND value->>'miniapp_installation_id'=$1").bind(id.to_string()).bind(a.id).execute(&mut *tx).await?;
+    tx.commit().await?;
+    Ok(Json(json!({"ok":true})))
 }
 
 pub(crate) async fn miniapp_gate(State(st):State<AppState>, request:axum::extract::Request, next:axum::middleware::Next)->Result<axum::response::Response>{
