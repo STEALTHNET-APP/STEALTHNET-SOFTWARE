@@ -8,12 +8,11 @@ The customer website combines a storefront, code sign-in, purchases, devices, re
 
 ## Workflow
 
-1. Configure branding and RU/EN content.
-2. create an installation.
-3. configure DNS.
-4. run its command on the server.
-5. verify HTTPS and connectivity.
-6. publish the storefront.
+1. Review the starter RU/EN content and branding; edit it if needed.
+2. Enable publication and click **Save settings**.
+3. Create an installation and configure DNS.
+4. Run its command on the server.
+5. Verify HTTPS and connectivity.
 
 ## Branding, content and access code
 
@@ -21,7 +20,7 @@ Set light/dark logos, favicon, two colors, SEO, headings, plan descriptions, FAQ
 
 ## Verify the result
 
-Mini App requires an installed customer website. Default settings do not publish a fabricated service. Keep the installation secret on the server only.
+Mini App requires an installed customer website. The starter template fills empty form fields; the owner enables publication and saves settings. Keep the installation secret on the server only.
 
 ![Customer website & Mini App](../../media/cabinet-en.png)
 

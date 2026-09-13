@@ -15,7 +15,7 @@ jobs:
           persist-credentials: false
       - run: |
           sudo apt-get update -qq
-          sudo apt-get install -y --no-install-recommends pkg-config libssl-dev curl ca-certificates gnupg
+          sudo apt-get install -y --no-install-recommends pkg-config libssl-dev curl ca-certificates jq gnupg
           # Match the installer: Ubuntu 22.04 needs Caddy's signed repository.
           curl --proto '=https' --tlsv1.2 -fsSL https://dl.cloudsmith.io/public/caddy/stable/gpg.key -o /tmp/sn-caddy.asc
           sudo gpg --batch --yes --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg /tmp/sn-caddy.asc

@@ -1,5 +1,11 @@
 'use strict';
 Object.assign(DICT, {
+  "Стартовые тексты RU/EN и оформление уже подготовлены — их можно изменить. Чтобы запустить кабинет, включите публикацию и сохраните настройки. Цены и лимиты берутся из": "Starter RU/EN text and branding are ready to edit. To launch the portal, enable publication and save settings. Prices and limits come from",
+  "Стартовые тексты добавлены — сохраните настройки": "Starter text added — save settings",
+  "Сначала опубликуйте кабинет": "Publish the customer portal first",
+  "Заполните обязательные поля в разделе «Брендинг и содержимое», включите публикацию и сохраните настройки. После этого выполните команду установки на выбранном сервере.": "Complete the required fields in Branding and content, enable publication, and save settings. Then run the installation command on the selected server.",
+  "Настроить публикацию": "Set up publication",
+  "Сначала опубликуйте кабинет и сохраните настройки": "Publish the customer portal and save settings first",
   "Нужна проверка": "Check required",
   "Требуется установка": "Installation required",
   "Кабинет не отвечает": "Customer portal is not responding",

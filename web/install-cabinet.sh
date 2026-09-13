@@ -4,6 +4,29 @@ set -euo pipefail
 umask 077
 die(){ printf 'Ошибка: %s\n' "$*" >&2; exit 1; }
 say(){ printf '→ %s\n' "$*"; }
+# Keep the response body for diagnosis, but never print arbitrary proxy HTML or secrets.
+check_cabinet_publication(){
+  local status
+  local publish_help='В панели откройте «Кабинет и Mini App» → «Брендинг и содержимое», заполните обязательные поля, включите «Опубликовать кабинет и разрешить Mini App» и нажмите «Сохранить настройки». Затем повторите ту же команду установки.'
+  status=$(curl -sS --connect-timeout 10 --max-time 30 --max-filesize 1048576 \
+    -H "x-cabinet-service-key: $CABINET_SERVICE_KEY" \
+    "$PANEL_API_URL/api/cabinet/config" -o "$TMP/config.json" -w '%{http_code}') \
+    || die 'Не удалось связаться с панелью. Проверьте её HTTPS-домен, DNS и сертификат.'
+  case "$status" in
+    200)
+      jq -e 'type == "object" and .enabled == true and (.brand | type == "string" and length > 0)' "$TMP/config.json" >/dev/null 2>&1 \
+        || die "Панель не подтвердила публикацию кабинета. $publish_help"
+      ;;
+    400)
+      if jq -e '.error == "Сайт ещё не опубликован"' "$TMP/config.json" >/dev/null 2>&1; then
+        die "Кабинет ещё не опубликован (HTTP 400). $publish_help"
+      fi
+      die 'Панель отклонила проверку кабинета (HTTP 400). Проверьте журнал sn-api и правила reverse proxy. Установка службы ещё не началась.'
+      ;;
+    401|403) die "Панель не приняла ключ кабинета (HTTP $status). Возьмите актуальную команду в «Кабинет и Mini App» → «Серверы и установка»." ;;
+    *) die "Неожиданный ответ панели (HTTP $status). Проверьте адрес панели и журнал sn-api. Установка службы ещё не началась." ;;
+  esac
+}
 [[ $EUID -eq 0 && -d /run/systemd/system ]] || die 'Нужен Linux с systemd, запуск от root'
 command -v apt-get >/dev/null || die 'Поддерживаются Debian и Ubuntu'
 PANEL_API_URL=${PANEL_API_URL:-}; PANEL_API_URL=${PANEL_API_URL%/}
@@ -23,8 +46,7 @@ apt-get update -qq
 DEBIAN_FRONTEND=noninteractive apt-get install -y -qq curl ca-certificates jq >/dev/null
 TMP=$(mktemp -d); trap 'rm -rf "$TMP"' EXIT
 say '1/5 · Проверяем кабинет в панели'
-curl -fsS --connect-timeout 10 --max-time 30 -H "x-cabinet-service-key: $CABINET_SERVICE_KEY" "$PANEL_API_URL/api/cabinet/config" -o "$TMP/config.json" || die 'Проверьте публикацию кабинета и ключ в админке'
-jq -e '.enabled==true and (.brand|length>0)' "$TMP/config.json" >/dev/null || die 'Кабинет не опубликован'
+check_cabinet_publication
 say '2/5 · Загружаем сборку и проверяем контрольную сумму'
 URL="$PANEL_API_URL/sn-cabinet-linux-$ARCH"
 curl -fsS --connect-timeout 10 --max-time 180 "$URL" -o "$TMP/sn-cabinet" || die 'На панели нет сборки для этой архитектуры'

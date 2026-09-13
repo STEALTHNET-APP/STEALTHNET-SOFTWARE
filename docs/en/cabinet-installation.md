@@ -6,13 +6,15 @@ The customer gateway (`sn-cabinet`) is a separate service on the panel server or
 
 ## Installation steps
 
-1. Open **Customer website & Mini App**. Set branding, SEO, RU/EN content, plan descriptions and instructions. Publish your own content.
+1. Open **Customer website & Mini App**. Starter RU/EN text, SEO, colors, and a standard logo are prefilled in empty fields. Edit them if needed, enable **Publish portal and allow Mini App**, and click **Save settings**.
 2. Create an installation with name, HTTPS domain, IP and hosting mode. Its domain must differ from the panel and subscription domain even on one server.
 3. Point A/AAAA records at the selected server, allow TCP 80/443 and preserve SSH access.
 4. Copy the generated command and run it as root on the destination server. The key belongs to this installation and remains in its server environment.
 5. Wait for binary/checksum, local readiness and public HTTPS checks. Verify the installation reports contact in the admin panel.
 6. Select it for Mini App in bot settings. Mini App is unavailable without the customer gateway.
 7. Test the public storefront, registration, code saving/viewing, sign-in from another browser and Telegram linking. Then test plans, add-ons, payments and support.
+
+Starter content fills empty form fields and is saved only when you click **Save settings**. Existing text, links, colors, and feature switches are preserved. The logo and favicon are served by your panel domain; prices come from configured plans.
 
 ## Same server
 
@@ -38,3 +40,11 @@ Also check the public domain’s `/ready` after an update. If an installation or
 For existing nginx or a container proxy, use `CABINET_PROXY=external` and configure HTTPS yourself. Detailed proxy and recovery steps are in the [bundled installation page](../../web/cabinet-installation-en.html).
 
 [Branding and translations](branding.md) · [Customer website](sections/cabinet.md) · [Add-ons](addons.md)
+
+## HTTP 400 at the first installation step
+
+“Сайт ещё не опубликован” means that customer portal publication is disabled in the panel. This applies both beside the panel and on a separate server.
+
+Open **Customer portal and Mini App → Branding and content**, complete the required fields, enable **Publish portal and allow Mini App**, and click **Save settings**. Wait for a successful save, then repeat **the same SSH command**. Checking the box without saving is not enough. You do not need a new key or a panel reinstall: the portal service has not been installed at this step.
+
+HTTP 401/403 indicates denied access: check the key and obtain the current command from **Servers and installation**. Other HTTP 400 responses or HTML instead of JSON may come from the reverse proxy; check its rules and the `sn-api` log.

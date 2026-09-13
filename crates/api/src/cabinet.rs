@@ -27,6 +27,46 @@ impl Customer {pub fn can_buy(&self)->Result<()>{if self.cabinet&&!self.saved {E
 fn header<'a>(h:&'a HeaderMap,name:&str)->Result<&'a str>{h.get(name).and_then(|s|s.to_str().ok()).ok_or(Error::Unauthorized)}
 fn bearer(h:&HeaderMap)->Result<&str>{header(h,"authorization")?.strip_prefix("Bearer ").filter(|s|s.len()==64&&s.bytes().all(|b|b.is_ascii_hexdigit())).ok_or(Error::Unauthorized)}
 pub async fn settings(st:&AppState)->Result<Value>{Ok(sqlx::query_scalar("SELECT value FROM settings WHERE key='cabinet.config'").fetch_one(&st.pool).await?)}
+/// Prefill the admin form only. Public settings change when the owner saves it.
+fn starter_config(mut config:Value,panel:&str,brand:&str)->Value{
+    fn fill(value:&mut Value,defaults:Value){
+        for (key,text) in defaults.as_object().unwrap(){
+            if value.get(key).is_none_or(|v|v.is_null()||v.as_str().is_some_and(|s|s.trim().is_empty())){
+                value[key]=text.clone();
+            }
+        }
+    }
+    let name=config["brand"].as_str().filter(|s|!s.trim().is_empty()).unwrap_or(brand).to_owned();
+    let name=if name.trim().is_empty(){"VPN".to_owned()}else{name};
+    let logo=format!("{}/customer-brand/starter.svg",panel.trim_end_matches('/'));
+    fill(&mut config,json!({
+        "brand":name,"logo":logo,"logo_dark":logo,"favicon":logo,
+        "accent":"#513bfa","accent_end":"#0bc4db",
+        "headline":"Ваш VPN — в одном кабинете",
+        "description":"Выберите тариф, сохраните код доступа и подключите свои устройства. Здесь можно проверить срок подписки и управлять подключением.",
+        "tariffs_heading":"Выберите подходящий тариф","faq_heading":"Вопросы и ответы",
+        "seo_title":format!("{name} — VPN и личный кабинет"),
+        "seo_description":"Тарифы VPN, подключение устройств и управление подпиской в личном кабинете."
+    }));
+    if config.get("locales").is_none_or(Value::is_null){config["locales"]=json!({});}
+    if config["locales"].is_object(){
+        if config["locales"].get("en").is_none_or(Value::is_null){config["locales"]["en"]=json!({});}
+        if config["locales"]["en"].is_object(){
+            fill(&mut config["locales"]["en"],json!({
+                "headline":"Your VPN, in one account",
+                "description":"Choose a plan, save your access code, and connect your devices. Check your subscription expiry and manage your connection here.",
+                "tariffs_heading":"Choose your plan","faq_heading":"Questions and answers",
+                "seo_title":format!("{name} — VPN and customer portal"),
+                "seo_description":"VPN plans, device setup, and subscription management in your customer account."
+            }));
+        }
+    }
+    if config["support_url"].as_str().is_some_and(|s|!s.is_empty()){
+        fill(&mut config,json!({"support_label":"Связаться с поддержкой"}));
+        if config["locales"]["en"].is_object(){fill(&mut config["locales"]["en"],json!({"support_label":"Contact support"}));}
+    }
+    config
+}
 fn flag(v:&Value,k:&str)->bool{v[k].as_bool()==Some(true)}
 pub fn validate_config(v:&Value)->Result<()>{
     if !v.is_object(){return Err(Error::bad("Настройки кабинета должны быть объектом"));}
@@ -176,7 +216,10 @@ async fn link_telegram(State(st):State<AppState>,c:Customer)->Result<Json<Value>
 }
 async fn admin_status(_a:CurrentAdmin,State(st):State<AppState>)->Result<Json<Value>>{
     let installs:Vec<Value>=sqlx::query_scalar("SELECT jsonb_build_object('id',id,'name',name,'public_url',public_url,'server_ip',server_ip,'placement',placement,'token_prefix',token_prefix,'last_seen_at',last_seen_at,'revoked_at',revoked_at) FROM cabinet_installations ORDER BY created_at DESC").fetch_all(&st.pool).await?;
-    Ok(Json(json!({"config":settings(&st).await?,"installations":installs,"miniapp_url":sn_core::cabinet::miniapp_url(&st.pool).await?,"panel_url":crate::sub_service::panel_public_url_pub(&st).await})))
+    let panel=crate::sub_service::panel_public_url_pub(&st).await;
+    let saved=settings(&st).await?;
+    let config=starter_config(saved.clone(),&panel,&st.config.brand_name);
+    Ok(Json(json!({"defaults_applied":config!=saved,"config":config,"installations":installs,"miniapp_url":sn_core::cabinet::miniapp_url(&st.pool).await?,"panel_url":panel})))
 }
 async fn admin_config(CurrentAdmin(a):CurrentAdmin,State(st):State<AppState>,Json(v):Json<Value>)->Result<Json<Value>>{
     if a.role!="owner"{return Err(Error::Forbidden);}validate_config(&v)?;
@@ -247,6 +290,25 @@ async fn admin_code_reset(State(st):State<AppState>,CurrentAdmin(a):CurrentAdmin
 #[cfg(test)]
 mod language_tests {
     use super::*;
+    #[test]fn starter_content_can_be_published_in_both_languages(){
+        let saved=json!({"enabled":false,"registration_enabled":false,"shop_enabled":false,"faq":[],"docs_links":[]});
+        let mut config=starter_config(saved.clone(),"https://panel.example.com/","Example VPN");
+        for key in ["enabled","registration_enabled","shop_enabled","faq","docs_links"]{assert_eq!(config[key],saved[key]);}
+        assert_eq!(config["logo"],"https://panel.example.com/customer-brand/starter.svg");
+        assert_eq!(config["brand"],"Example VPN");
+        config["enabled"]=json!(true);
+        assert!(validate_config(&config).is_ok());
+        assert!(config["locales"]["en"]["headline"].as_str().is_some_and(|s|!s.is_empty()));
+        assert_eq!(starter_config(config.clone(),"https://other.example.com","Other"),config);
+    }
+    #[test]fn starter_content_preserves_custom_settings_and_fills_only_blanks(){
+        let saved=json!({"enabled":true,"brand":"My service","headline":"My headline","description":"  ","accent":"#123456","logo":"https://custom.example.com/logo.svg","support_url":"https://example.com/help","faq":[{"question":"Custom?","answer":"Yes"}],"locales":{"en":{"headline":"My English headline"}}});
+        let config=starter_config(saved.clone(),"https://panel.example.com","Ignored");
+        for key in ["enabled","brand","headline","accent","logo","support_url","faq"]{assert_eq!(config[key],saved[key]);}
+        assert_eq!(config["locales"]["en"]["headline"],"My English headline");
+        assert!(config["description"].as_str().is_some_and(|s|!s.trim().is_empty()));
+        assert!(validate_config(&config).is_ok());
+    }
     fn english()->Value{json!({"headline":"Connect","description":"VPN service","tariffs_heading":"Plans","seo_title":"VPN","seo_description":"VPN plans","steps":[{"title":"Choose","text":"Choose a plan"}],"faq":[],"docs_links":[]})}
     #[test]fn english_content_is_validated_without_changing_service_flags(){
         assert!(validate_config(&json!({"locales":{"en":english()}})).is_ok());

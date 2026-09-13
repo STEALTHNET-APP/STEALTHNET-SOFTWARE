@@ -17,7 +17,7 @@ Open **Customer website & Mini App**. The customer website, Mini App and connect
 
 An explicit `?lang=ru` or `?lang=en` takes precedence, followed by the saved preference, Telegram language and browser language. Preferences persist on the current domain. Interface translations are separate from owner content; service names and customer data are not automatically translated.
 
-Complete the required English fields before publishing EN. Missing English content produces an explicit unpublished-content message; the site does not invent marketing copy or prices. Saving English content must preserve the Russian version.
+Empty required fields are prefilled with starter RU/EN text, SEO, and branding. Edit them before publication if needed. Existing values are preserved and prices come from configured plans. Saving English content preserves the Russian version.
 
 ## SEO and images
 
