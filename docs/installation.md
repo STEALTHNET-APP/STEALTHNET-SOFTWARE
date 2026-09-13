@@ -20,9 +20,9 @@
 ```bash
 apt-get update
 apt-get install -y git curl ca-certificates
-git clone --branch v0.1.3 --depth 1 https://github.com/STEALTHNET-APP/STEALTHNET-SOFTWARE.git /root/stealthnet-installer
+git clone --branch v0.1.7 --depth 1 https://github.com/STEALTHNET-APP/STEALTHNET-SOFTWARE.git /root/stealthnet-installer
 cd /root/stealthnet-installer
-bash install.sh --version v0.1.3
+bash install.sh --version v0.1.7
 ```
 
 Откроется мастер: укажите домены панели и подписки, название сервиса, валюту и данные владельца. Установщик сам скачает готовый релиз для архитектуры сервера, проверит SHA256 и установит PostgreSQL, системные службы и HTTPS. Компилировать Rust не требуется.
@@ -84,9 +84,9 @@ stealthnet update
 Конкретный опубликованный релиз:
 
 ```bash
-make update VERSION=v0.1.3
+make update VERSION=v0.1.7
 # или
-stealthnet update --version v0.1.3
+stealthnet update --version v0.1.7
 ```
 
 Выбирайте существующий тег из Releases. `make update` без версии выбирает последний стабильный релиз.

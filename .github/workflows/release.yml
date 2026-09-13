@@ -5,7 +5,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: 'Existing release tag, for example v0.1.0'
+        description: 'Existing release tag matching Cargo.toml (vX.Y.Z)'
         required: true
         type: string
 permissions:

@@ -2,7 +2,7 @@
 
 # Build and publish a release
 
-The repository is STEALTHNET-APP/STEALTHNET-SOFTWARE. The first source publication and stable GitHub Release are required before customers can use the public installer.
+The repository is STEALTHNET-APP/STEALTHNET-SOFTWARE. The public installer selects the latest published stable GitHub Release unless the operator specifies a tag.
 
 ## Build workflow
 
@@ -14,13 +14,15 @@ Private environments, database dumps, audit sessions, conversations, SSH keys, t
 
 ## Publish
 
-1. Update Cargo.toml and Cargo.lock versions. Write RU/EN release notes, including migration compatibility and required operator actions.
+1. Set `[workspace.package].version` in Cargo.toml, then run `python3 devtools/release_version.py --sync`. It synchronizes workspace packages in Cargo.lock, current installation/update commands in all guides, README version labels and download buttons. Review the diff and write RU/EN release notes, including migration compatibility and required operator actions.
 2. Run tests and verify clean installation plus an upgrade from the previous release.
 3. Create and push the matching version tag after repository publication is authorized.
 4. Wait for both native builds. The workflow creates a **draft** release with archives and SHA256 files.
 5. Review contents and notes, then publish it as stable. Only then can customers install it and see it in update checks.
 
 Existing release assets are never overwritten. Fixes require another version and tag. A workflow rerun stops if the release already exists.
+
+`python3 devtools/release_version.py --check` fails if release references differ from Cargo.toml. It runs as part of `make test-release` in both change checks and release builds. Historical compatibility reports, third-party dependency versions and descriptions of earlier fixes retain their original versions. Keep new historical reports out of current installation guides and explicitly register them in the version tool's history list.
 
 ```text
 stealthnet-vX.Y.Z-linux-amd64.tar.gz
@@ -39,7 +41,7 @@ The `.sha256` sidecar contains the hash alone. `SHA256SUMS` is the multi-file fo
 ```bash
 make test-release
 cargo test --locked --workspace --lib --bins
-python3 deploy/package-release.py --version v0.1.0 --builds /path/to/builds --output /path/to/dist
+python3 deploy/package-release.py --version v0.1.7 --builds /path/to/builds --output /path/to/dist
 ```
 
 Each architecture directory must contain all seven real Linux binaries. Pin action commits, protect the main branch/tags, require checks and use 2FA for maintainers. Keep write permissions restricted to the release job. See [installation test coverage](../compatibility.md) for what has actually been exercised.

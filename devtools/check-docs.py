@@ -4,7 +4,7 @@ from pathlib import Path
 import json,re,sys,urllib.parse,xml.etree.ElementTree as ET
 ROOT=Path(__file__).resolve().parent.parent
 errors=[]
-paths=[ROOT/x for x in ('README.md','README.ru.md','CONTRIBUTING.md','CONTRIBUTING.ru.md','LICENSE.md','SECURITY.md','THIRD_PARTY_NOTICES.md','docs/README.md','docs/compatibility.md','docs/media/README.md')]
+paths=[ROOT/x for x in ('README.md','README.ru.md','CONTRIBUTING.md','CONTRIBUTING.ru.md','LICENSE.md','SECURITY.md','THIRD_PARTY_NOTICES.md','docs/README.md','docs/compatibility.md','docs/installation.md','docs/installation-releases.md','docs/media/README.md')]
 paths += sorted((ROOT/'docs/en').rglob('*.md'))+sorted((ROOT/'docs/ru').rglob('*.md'))
 ru={str(p.relative_to(ROOT/'docs/ru')) for p in (ROOT/'docs/ru').rglob('*.md')}
 en={str(p.relative_to(ROOT/'docs/en')) for p in (ROOT/'docs/en').rglob('*.md')}

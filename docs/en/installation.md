@@ -4,7 +4,7 @@
 
 The installer downloads prebuilt GitHub release files, installs PostgreSQL, Caddy and the panel services, and creates the owner account. Rust, Git, Node.js and Docker are not required on the customer server.
 
-> The public installation command requires published source code and a stable release in STEALTHNET-APP/STEALTHNET-SOFTWARE. The first public release is still pending. A draft release is not installable by customers.
+The commands below install a published stable release from STEALTHNET-APP/STEALTHNET-SOFTWARE. Without `--version`, the downloader selects the latest stable release automatically. Draft releases are not available to customers.
 
 ## Install from GitHub
 
@@ -13,9 +13,9 @@ SSH into a clean Debian/Ubuntu server **as root**, then run:
 ```bash
 apt-get update
 apt-get install -y git curl ca-certificates
-git clone --branch v0.1.3 --depth 1 https://github.com/STEALTHNET-APP/STEALTHNET-SOFTWARE.git /root/stealthnet-installer
+git clone --branch v0.1.7 --depth 1 https://github.com/STEALTHNET-APP/STEALTHNET-SOFTWARE.git /root/stealthnet-installer
 cd /root/stealthnet-installer
-bash install.sh --version v0.1.3
+bash install.sh --version v0.1.7
 ```
 
 The wizard asks for panel/subscription domains, service name, currency and owner credentials. It downloads the release for your server architecture, verifies SHA256, and installs PostgreSQL, system services and HTTPS. You do not need to compile Rust.
@@ -34,7 +34,7 @@ The customer website/Mini App and VPN nodes are installed separately from the ad
 
 ## Download and run
 
-Run as root after the first stable release is published:
+Run as root to install the latest stable release without cloning the repository:
 
 ```bash
 apt-get update -qq
@@ -76,10 +76,10 @@ make update
 Or run `stealthnet update` from any directory. To select a particular **published** tag:
 
 ```bash
-make update VERSION=v0.1.3
+make update VERSION=v0.1.7
 ```
 
-The tag above is a syntax example, not a claim that this release exists. The updater downloads and verifies files, saves a PostgreSQL dump and configuration, applies migrations, atomically switches `current`, restarts panel services and checks readiness. Nodes/Xray, a separate subscription service and the customer website have their own update procedures.
+The example pins the published release used in this guide. `make update` without a version selects the latest stable release. The updater downloads and verifies files, saves a PostgreSQL dump and configuration, applies migrations, atomically switches `current`, restarts panel services and checks readiness. Nodes/Xray, a separate subscription service and the customer website have their own update procedures.
 
 Backups are stored in `/opt/stealthnet-software/backups/<UTC timestamp>/`. A startup failure returns to the previous binaries; **applied database migrations are not automatically reversed**. Restoring a database is a separate maintenance operation and discards changes after the backup. Release migrations must remain backward-compatible with the previous binaries.
 

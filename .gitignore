@@ -15,9 +15,11 @@
 # Local visual harnesses contain environment snapshots; public checks are listed explicitly.
 /devtools/*
 !/devtools/check-docs.py
+!/devtools/release_version.py
 !/devtools/tests/
 /devtools/tests/*
 !/devtools/tests/profile-form.test.cjs
+!/devtools/tests/test_release_version.py
 /docs/design/
 /docs/repository-preparation.md
 __pycache__/
