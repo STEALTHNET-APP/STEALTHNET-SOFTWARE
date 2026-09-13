@@ -14,10 +14,10 @@
 
 **STEALTHNET** brings VPN infrastructure, subscriptions, sales and customer accounts into one platform. Built with Rust and PostgreSQL, with independent services and Russian/English interfaces.
 
-**v0.1.0 · first public release.**
+**v0.1.1 · first patch release.**
 
 <p>
-  <a href="https://github.com/STEALTHNET-APP/STEALTHNET-SOFTWARE/releases/tag/v0.1.0"><img src="docs/media/navigation/link-en-02.svg" width="214" height="58" alt="Download v0.1.0" /></a>
+  <a href="https://github.com/STEALTHNET-APP/STEALTHNET-SOFTWARE/releases/tag/v0.1.1"><img src="docs/media/navigation/link-en-02.svg" width="214" height="58" alt="Download v0.1.1" /></a>
   <a href="docs/compatibility.md"><img src="docs/media/navigation/link-en-03.svg" width="206" height="58" alt="Tested systems" /></a>
 </p>
 
@@ -77,9 +77,9 @@ SSH into a clean Debian/Ubuntu server **as root**, then run:
 ```bash
 apt-get update
 apt-get install -y git curl ca-certificates
-git clone --branch v0.1.0 --depth 1 https://github.com/STEALTHNET-APP/STEALTHNET-SOFTWARE.git /root/stealthnet-installer
+git clone --branch v0.1.1 --depth 1 https://github.com/STEALTHNET-APP/STEALTHNET-SOFTWARE.git /root/stealthnet-installer
 cd /root/stealthnet-installer
-bash install.sh --version v0.1.0
+bash install.sh --version v0.1.1
 ```
 
 The wizard asks for panel/subscription domains, service name, currency and owner credentials. It downloads the release for your server architecture, verifies SHA256, and installs PostgreSQL, system services and HTTPS. You do not need to compile Rust.

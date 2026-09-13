@@ -4,13 +4,13 @@ set -Eeuo pipefail
 umask 077
 export LC_ALL=C.UTF-8
 REPO=STEALTHNET-APP/STEALTHNET-SOFTWARE
-VERSION=latest
+SN_RELEASE_VERSION=latest
 MODE=install
 SN_ARGS=()
 die() { printf '\033[31m  × %s\033[0m\n' "$*" >&2; exit 1; }
 while (($#)); do
   case "$1" in
-    --version) [[ $# -ge 2 ]] || die 'Specify --version vX.Y.Z'; VERSION=$2; shift 2;;
+    --version) [[ $# -ge 2 ]] || die 'Specify --version vX.Y.Z'; SN_RELEASE_VERSION=$2; shift 2;;
     --update) MODE=update; shift;;
     --help|-h) printf 'STEALTHNET installer\n  sudo bash install.sh [--version vX.Y.Z] [--update]\n  See docs/installation.md for unattended installation.\n'; exit 0;;
     *) SN_ARGS+=("$1"); shift;;
@@ -33,16 +33,16 @@ fi
 SN_TMP=$(mktemp -d /tmp/stealthnet-install.XXXXXXXX)
 trap 'rm -rf -- "$SN_TMP"' EXIT
 fetch() { curl --proto '=https' --proto-redir '=https' --tlsv1.2 --fail --location --retry 3 --connect-timeout 15 --max-time 600 --silent --show-error "$1" -o "$2"; }
-if [[ $VERSION == latest ]]; then
+if [[ $SN_RELEASE_VERSION == latest ]]; then
   fetch "https://api.github.com/repos/$REPO/releases/latest" "$SN_TMP/release.json" || die 'Опубликованный релиз не найден или GitHub недоступен. Проверьте Releases и повторите запуск.'
-  VERSION=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["tag_name"])' "$SN_TMP/release.json")
+  SN_RELEASE_VERSION=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["tag_name"])' "$SN_TMP/release.json")
 fi
-[[ $VERSION =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9][a-zA-Z0-9.-]*)?$ ]] || die 'Некорректный тег релиза (нужен vX.Y.Z).'
-ASSET="stealthnet-$VERSION-linux-$ARCH.tar.gz"
-printf '  → Загружаем %s · %s…\n' "$VERSION" "$ARCH"
-fetch "https://github.com/$REPO/releases/download/$VERSION/$ASSET" "$SN_TMP/release.tar.gz" || die 'Сборка для этой версии/архитектуры не найдена.'
-fetch "https://github.com/$REPO/releases/download/$VERSION/$ASSET.sha256" "$SN_TMP/release.sha256" || die 'Нет контрольной суммы релиза. Установка остановлена.'
-python3 - "$SN_TMP" "$VERSION" "$ARCH" <<'PY'
+[[ $SN_RELEASE_VERSION =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9][a-zA-Z0-9.-]*)?$ ]] || die 'Некорректный тег релиза (нужен vX.Y.Z).'
+ASSET="stealthnet-$SN_RELEASE_VERSION-linux-$ARCH.tar.gz"
+printf '  → Загружаем %s · %s…\n' "$SN_RELEASE_VERSION" "$ARCH"
+fetch "https://github.com/$REPO/releases/download/$SN_RELEASE_VERSION/$ASSET" "$SN_TMP/release.tar.gz" || die 'Сборка для этой версии/архитектуры не найдена.'
+fetch "https://github.com/$REPO/releases/download/$SN_RELEASE_VERSION/$ASSET.sha256" "$SN_TMP/release.sha256" || die 'Нет контрольной суммы релиза. Установка остановлена.'
+python3 - "$SN_TMP" "$SN_RELEASE_VERSION" "$ARCH" <<'PY'
 import hashlib,json,pathlib,re,sys,tarfile
 root=pathlib.Path(sys.argv[1]); archive=root/'release.tar.gz'
 expected=(root/'release.sha256').read_text().strip()

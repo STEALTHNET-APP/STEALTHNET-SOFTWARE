@@ -3,6 +3,7 @@ import json
 import os
 from pathlib import Path
 import shutil
+import subprocess
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -19,6 +20,17 @@ class InstallerTests(unittest.TestCase):
         self.temp=tempfile.TemporaryDirectory();self.root=Path(self.temp.name)
         self.c=dict(panel_domain='panel.example.com',sub_domain='sub.example.com',brand='Test "Network"',currency='USD',admin_user='owner',admin_password='Long$pass"word\\123',bot_token='',proxy='external')
     def tearDown(self):self.temp.cleanup()
+    def test_selected_release_survives_distribution_metadata(self):
+        # Run the actual CLI parser, then source the same fields supplied by
+        # /etc/os-release. OS VERSION must never replace the application tag.
+        script=(DEPLOY.parent/'install.sh').read_text().split('[[ $EUID -eq 0 ]]',1)[0]
+        for distro in ('13','24.04','26.04'):
+            metadata=self.root/'os-release';metadata.write_text(f'ID=ubuntu\nVERSION="{distro} LTS"\nVERSION_ID="{distro}"\n')
+            for args,expected in (([], 'latest'),(['--version','v0.1.1'],'v0.1.1')):
+                with self.subTest(distro=distro,args=args):
+                    command=script+f'\n. "{metadata}"\nprintf "%s" "$SN_RELEASE_VERSION"\n'
+                    result=subprocess.run(['bash','-c',command,'installer',*args],text=True,capture_output=True,check=True)
+                    self.assertEqual(result.stdout,expected)
     def test_domains_and_config_injection(self):
         for value in ('x\nroot * /','example.com:443','https://example.com','a..com','-a.example.com','a.example.com/','a.example.com"','127.0.0.1'):
             with self.subTest(value=value),self.assertRaises(I.InstallError):I.validate_config({**self.c,'panel_domain':value})

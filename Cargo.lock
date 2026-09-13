@@ -2043,7 +2043,7 @@ dependencies = [
 
 [[package]]
 name = "sn-api"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "axum",
  "chrono",
@@ -2069,7 +2069,7 @@ dependencies = [
 
 [[package]]
 name = "sn-bot"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "chrono",
  "reqwest",
@@ -2086,7 +2086,7 @@ dependencies = [
 
 [[package]]
 name = "sn-core"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "argon2",
  "axum",
@@ -2111,7 +2111,7 @@ dependencies = [
 
 [[package]]
 name = "sn-node"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "axum",
  "base64 0.22.1",
@@ -2130,7 +2130,7 @@ dependencies = [
 
 [[package]]
 name = "sn-payments"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "async-trait",
  "chrono",
@@ -2149,7 +2149,7 @@ dependencies = [
 
 [[package]]
 name = "sn-sub"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "axum",
  "base64 0.22.1",
@@ -2171,7 +2171,7 @@ dependencies = [
 
 [[package]]
 name = "sn-worker"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "chrono",
  "reqwest",
