@@ -20,9 +20,9 @@
 ```bash
 apt-get update
 apt-get install -y git curl ca-certificates
-git clone --branch v0.2.5 --depth 1 https://github.com/STEALTHNET-APP/STEALTHNET-SOFTWARE.git /root/stealthnet-installer
+git clone --branch v0.2.6 --depth 1 https://github.com/STEALTHNET-APP/STEALTHNET-SOFTWARE.git /root/stealthnet-installer
 cd /root/stealthnet-installer
-bash install.sh --version v0.2.5
+bash install.sh --version v0.2.6
 ```
 
 Откроется мастер: укажите домены панели и подписки, название сервиса, валюту и данные владельца. Установщик сам скачает готовый релиз для архитектуры сервера, проверит SHA256 и установит PostgreSQL, системные службы и HTTPS. Компилировать Rust не требуется.
@@ -104,9 +104,9 @@ stealthnet update
 Конкретный опубликованный релиз:
 
 ```bash
-make update VERSION=v0.2.5
+make update VERSION=v0.2.6
 # или
-stealthnet update --version v0.2.5
+stealthnet update --version v0.2.6
 ```
 
 Выбирайте существующий тег из Releases. `make update` без версии выбирает последний стабильный релиз.
@@ -125,7 +125,7 @@ stealthnet update --version v0.2.5
 
 ```bash
 cd /opt/stealthnet-software
-make update VERSION=v0.2.5
+make update VERSION=v0.2.6
 ```
 
 Обновление создаёт резервную копию и исправляет старое правило в конфигурации, созданной установщиком, сохраняя остальные настройки. После обновления перезагрузите страницу с очисткой кэша (`Ctrl+F5` / `Cmd+Shift+R`). Для своего reverse proxy используйте пути `/app` и `/app/*`, без перехвата `/app.css`. Новые установки и обновления проверяют тип и содержимое основного CSS и JavaScript перед сообщением об успехе. Страница входа показывает версию API без надписи «стенд».

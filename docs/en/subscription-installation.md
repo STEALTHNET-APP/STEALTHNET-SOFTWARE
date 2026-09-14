@@ -71,17 +71,31 @@ curl -fsS https://sub.example.com/ready
 
 The service key stays in `/etc/sn-sub/env`, not a publicly readable unit file. Separate instances share the project’s active key. Rotating it requires updating `SUB_SERVICE_TOKEN` on every separate instance and restarting sn-sub. Never disable HTTPS certificate verification.
 
-For a local installation, update the panel with `make update`; it updates the subscription service too. For a separate server, update the subscription service first, then the panel. Run as root on the subscription server:
+Every server uses the same directory and commands. Update the panel first, then run updates on separate portal and subscription servers; they download builds from their own panel. A command manages only components on the server where it runs.
 
 ```bash
-curl --proto '=https' --tlsv1.2 -fsSL https://raw.githubusercontent.com/STEALTHNET-APP/STEALTHNET-SOFTWARE/v0.2.5/web/update-sub.sh -o /root/stealthnet-update-sub.sh
-case "$(uname -m)" in
-  x86_64) SN_SUB_ARCH=amd64 ;;
-  aarch64|arm64) SN_SUB_ARCH=arm64 ;;
-  *) echo 'Unsupported architecture'; exit 1 ;;
-esac
-SUB_BINARY_URL="https://github.com/STEALTHNET-APP/STEALTHNET-SOFTWARE/releases/download/v0.2.5/sn-sub-linux-$SN_SUB_ARCH" bash /root/stealthnet-update-sub.sh
+cd /opt/stealthnet-software
 ```
+
+| Command | Action |
+|---|---|
+| `make update` | Update installed components |
+| `make start` | Start services |
+| `make stop` | Stop services |
+| `make restart` | Restart services |
+| `make status` | Show status |
+
+Caddy, PostgreSQL and boot-time enablement are unchanged. On the panel server, commands manage the panel, its local subscription service, configured bot and installed portal. On a separate server they manage the portal, subscription service, or both. A bot without a token is not started.
+
+New installers create these commands automatically. If a separate service predates v0.2.6 and has no directory with a Makefile yet, add the commands once as root (keys and settings are preserved):
+
+```bash
+apt-get update && apt-get install -y curl ca-certificates python3 make
+curl --proto '=https' --tlsv1.2 -fsSL https://raw.githubusercontent.com/STEALTHNET-APP/STEALTHNET-SOFTWARE/v0.2.6/web/service-manager.py -o /root/stealthnet-service-manager.py
+python3 /root/stealthnet-service-manager.py install-entrypoints
+```
+
+Then use `cd /opt/stealthnet-software && make update`. Older update commands remain available. Existing Docker installations should use their Compose file.
 
 The updater preserves `/etc/sn-sub/env`, replaces the binary atomically and checks readiness. If startup fails, it restores the previous binary.
 

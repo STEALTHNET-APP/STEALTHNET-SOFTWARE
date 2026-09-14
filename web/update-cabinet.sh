@@ -12,6 +12,12 @@ HASH=$(curl -fsS --max-time 30 "$PANEL_API_URL/sn-cabinet-linux-$ARCH.sha256" | 
 printf '%s  %s\n' "$HASH" "$TMP/sn-cabinet" | sha256sum -c -
 chmod 755 "$TMP/sn-cabinet"
 [[ $("$TMP/sn-cabinet" --version) = sn-cabinet\ * ]] || exit 1
+missing=()
+for dep in python3 make;do command -v "$dep" >/dev/null || missing+=("$dep");done
+if (( ${#missing[@]} ));then apt-get update -qq; DEBIAN_FRONTEND=noninteractive apt-get install -y -qq "${missing[@]}";fi
+curl --proto '=https' --proto-redir '=https' -fsSL --max-time 60 "$PANEL_API_URL/service-manager.py" -o "$TMP/service-manager.py"
+python3 "$TMP/service-manager.py" --help >/dev/null
+python3 "$TMP/service-manager.py" install-entrypoints
 BACKUP="/usr/local/bin/sn-cabinet.previous-$(date -u +%Y%m%dT%H%M%SZ)"
 cp -p /usr/local/bin/sn-cabinet "$BACKUP"
 install -m755 "$TMP/sn-cabinet" /usr/local/bin/sn-cabinet.new
@@ -20,5 +26,5 @@ restart_ok=
 if systemctl restart sn-cabinet;then restart_ok=1;fi
 ready=
 for attempt in {1..10};do if [[ -n "$restart_ok" ]] && curl -fsS --max-time 10 http://127.0.0.1:8090/ready > /dev/null 2>"$TMP/ready-error";then ready=1;break;fi;[[ -n "$restart_ok" ]] || break;sleep 2;done
-if [[ -z "$ready" ]];then [[ ! -s "$TMP/ready-error" ]] || cat "$TMP/ready-error" >&2;cp "$BACKUP" /usr/local/bin/sn-cabinet.rollback;mv /usr/local/bin/sn-cabinet.rollback /usr/local/bin/sn-cabinet;systemctl restart sn-cabinet;echo 'Проверка не прошла. Предыдущая сборка восстановлена';exit 1;fi
+if [[ -z "$ready" ]];then [[ ! -s "$TMP/ready-error" ]] || cat "$TMP/ready-error" >&2;cp -p "$BACKUP" /usr/local/bin/sn-cabinet.rollback;mv /usr/local/bin/sn-cabinet.rollback /usr/local/bin/sn-cabinet;systemctl restart sn-cabinet;echo 'Проверка не прошла. Предыдущая сборка восстановлена';exit 1;fi
 printf 'Кабинет обновлён. Предыдущая сборка: %s\n' "$BACKUP"

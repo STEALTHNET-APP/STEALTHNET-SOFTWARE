@@ -15,10 +15,10 @@
 
 **STEALTHNET** brings VPN infrastructure, subscriptions, sales and customer accounts into one platform. Built with Rust and PostgreSQL, with independent services and Russian/English interfaces.
 
-**v0.2.5 · guided installation, short subscription links and a bilingual connection page.**
+**v0.2.6 · guided installation, short subscription links and a bilingual connection page.**
 
 <p>
-  <a href="https://github.com/STEALTHNET-APP/STEALTHNET-SOFTWARE/releases/tag/v0.2.5"><img src="docs/media/navigation/link-en-02.svg" width="214" height="58" alt="Download v0.2.5" /></a>
+  <a href="https://github.com/STEALTHNET-APP/STEALTHNET-SOFTWARE/releases/tag/v0.2.6"><img src="docs/media/navigation/link-en-02.svg" width="214" height="58" alt="Download v0.2.6" /></a>
   <a href="docs/compatibility.md"><img src="docs/media/navigation/link-en-03.svg" width="206" height="58" alt="Tested systems" /></a>
 </p>
 
@@ -78,9 +78,9 @@ SSH into a clean Debian/Ubuntu server **as root**, then run:
 ```bash
 apt-get update
 apt-get install -y git curl ca-certificates
-git clone --branch v0.2.5 --depth 1 https://github.com/STEALTHNET-APP/STEALTHNET-SOFTWARE.git /root/stealthnet-installer
+git clone --branch v0.2.6 --depth 1 https://github.com/STEALTHNET-APP/STEALTHNET-SOFTWARE.git /root/stealthnet-installer
 cd /root/stealthnet-installer
-bash install.sh --version v0.2.5
+bash install.sh --version v0.2.6
 ```
 
 The wizard asks where to host subscriptions, then explains the domain, service name, currency and owner fields. Choose the panel server or a separate machine; remote subscription setup is completed afterwards from the panel. It downloads the release for your server architecture, verifies SHA256, and installs PostgreSQL, system services and HTTPS. You do not need to compile Rust.

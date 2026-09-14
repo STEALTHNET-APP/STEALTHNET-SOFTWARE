@@ -29,6 +29,12 @@ cleanup(){
   rm -rf "$TMP"
 }
 trap cleanup EXIT
+missing=()
+for dep in python3 make;do command -v "$dep" >/dev/null || missing+=("$dep");done
+if (( ${#missing[@]} ));then apt-get update -qq; DEBIAN_FRONTEND=noninteractive apt-get install -y -qq "${missing[@]}";fi
+curl --proto '=https' --proto-redir '=https' -fsSL --max-time 60 "$PANEL_URL/service-manager.py" -o "$TMP/service-manager.py"
+python3 "$TMP/service-manager.py" --help >/dev/null
+python3 "$TMP/service-manager.py" install-entrypoints
 verified_download "${SUB_BINARY_URL:-$PANEL_URL/sn-sub-linux-$ARCH}" "$TMP/new" || die "не удалось проверить HTTPS-сборку и её SHA256; рабочая версия сохранена"
 [[ $(head -c4 "$TMP/new" | od -An -tx1 | tr -d ' \n') = 7f454c46 ]] || die "панель вернула не Linux-бинарник"
 chmod 755 "$TMP/new"
@@ -39,9 +45,9 @@ mv -f "$TMP/new" /usr/local/bin/sn-sub
 systemctl restart sn-sub
 ready=
 for attempt in {1..10}; do
-  if systemctl is-active --quiet sn-sub && curl -fsS --connect-timeout 2 --max-time 12 http://127.0.0.1:8081/ready >/dev/null; then ready=1; break; fi
+  if systemctl is-active --quiet sn-sub && curl -fsS --connect-timeout 2 --max-time 12 http://127.0.0.1:8081/ready -o "$TMP/ready.json" 2>"$TMP/ready-error" && python3 -c 'import json,sys;sys.exit(json.load(open(sys.argv[1])).get("status")!="ready")' "$TMP/ready.json" 2>>"$TMP/ready-error"; then ready=1; break; fi
   sleep 2
 done
-[[ -n "$ready" ]] || die "обновлённый сервис не готов"
+if [[ -z "$ready" ]];then [[ ! -s "$TMP/ready-error" ]] || cat "$TMP/ready-error" >&2;die "обновлённый сервис не готов";fi
 COMMITTED=0
 printf '%s обновлён. Настройки и служебный ключ сохранены.\n' "$VERSION"

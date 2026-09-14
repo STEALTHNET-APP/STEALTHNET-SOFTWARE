@@ -107,19 +107,31 @@ Caddy автоматически получает и продлевает сер
 
 ## 5. Обновление
 
-**Один сервер:** обновляйте панель через `update.sh` из каталога проекта. Он обновляет и сервис подписки. Для Compose пересоберите сервисы проекта через `docker compose up -d --build`.
-
-**Отдельный сервер:** сначала обновите сервис подписки, затем панель. На сервере подписки от root выполните:
+На каждом сервере используется одинаковый каталог и команды. Сначала обновите панель, затем выполните обновление на отдельных серверах кабинета и подписки: они получают сборки со своей панели. Команда управляет только компонентами на сервере, где запущена.
 
 ```bash
-curl --proto '=https' --tlsv1.2 -fsSL https://raw.githubusercontent.com/STEALTHNET-APP/STEALTHNET-SOFTWARE/v0.2.5/web/update-sub.sh -o /root/stealthnet-update-sub.sh
-case "$(uname -m)" in
-  x86_64) SN_SUB_ARCH=amd64 ;;
-  aarch64|arm64) SN_SUB_ARCH=arm64 ;;
-  *) echo 'Unsupported architecture'; exit 1 ;;
-esac
-SUB_BINARY_URL="https://github.com/STEALTHNET-APP/STEALTHNET-SOFTWARE/releases/download/v0.2.5/sn-sub-linux-$SN_SUB_ARCH" bash /root/stealthnet-update-sub.sh
+cd /opt/stealthnet-software
 ```
+
+| Команда | Действие |
+|---|---|
+| `make update` | Обновить установленные компоненты |
+| `make start` | Запустить службы |
+| `make stop` | Остановить службы |
+| `make restart` | Перезапустить службы |
+| `make status` | Показать состояние |
+
+Caddy, PostgreSQL и настройки автозапуска не меняются. На сервере панели команды управляют панелью, её локальной подпиской, настроенным ботом и установленным кабинетом. На отдельном сервере — кабинетом, подпиской или обоими установленными сервисами. Бот без токена не запускается.
+
+Новые установщики создают команды автоматически. Если отдельный сервис установлен до v0.2.6 и каталога с Makefile ещё нет, один раз добавьте команды от root (ключи и настройки сохранятся):
+
+```bash
+apt-get update && apt-get install -y curl ca-certificates python3 make
+curl --proto '=https' --tlsv1.2 -fsSL https://raw.githubusercontent.com/STEALTHNET-APP/STEALTHNET-SOFTWARE/v0.2.6/web/service-manager.py -o /root/stealthnet-service-manager.py
+python3 /root/stealthnet-service-manager.py install-entrypoints
+```
+
+После этого используйте `cd /opt/stealthnet-software && make update`. Старые команды обновления продолжают работать. Для существующей установки через Docker используйте её Compose-файл.
 
 Обновлятор сохраняет `/etc/sn-sub/env`, заменяет бинарник атомарно и проверяет готовность. Если новая служба не готова, возвращает предыдущий бинарник. Ключ и адреса не меняются. Повторный запуск свежего установщика вместо обновлятора остановится, чтобы не затереть рабочую службу.
 

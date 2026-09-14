@@ -15,10 +15,10 @@
 
 **STEALTHNET** — платформа для своего VPN-сервиса: инфраструктура, подписки, продажи и клиентские аккаунты в одной системе. Rust и PostgreSQL, независимые службы, интерфейсы на русском и английском.
 
-**v0.2.5 · понятная установка, короткие ссылки подписки и страница подключения на двух языках.**
+**v0.2.6 · понятная установка, короткие ссылки подписки и страница подключения на двух языках.**
 
 <p>
-  <a href="https://github.com/STEALTHNET-APP/STEALTHNET-SOFTWARE/releases/tag/v0.2.5"><img src="docs/media/navigation/link-ru-02.svg" width="206" height="58" alt="Скачать v0.2.5" /></a>
+  <a href="https://github.com/STEALTHNET-APP/STEALTHNET-SOFTWARE/releases/tag/v0.2.6"><img src="docs/media/navigation/link-ru-02.svg" width="206" height="58" alt="Скачать v0.2.6" /></a>
   <a href="docs/compatibility.md"><img src="docs/media/navigation/link-ru-03.svg" width="247" height="58" alt="Проверенные системы" /></a>
 </p>
 
@@ -78,9 +78,9 @@
 ```bash
 apt-get update
 apt-get install -y git curl ca-certificates
-git clone --branch v0.2.5 --depth 1 https://github.com/STEALTHNET-APP/STEALTHNET-SOFTWARE.git /root/stealthnet-installer
+git clone --branch v0.2.6 --depth 1 https://github.com/STEALTHNET-APP/STEALTHNET-SOFTWARE.git /root/stealthnet-installer
 cd /root/stealthnet-installer
-bash install.sh --version v0.2.5
+bash install.sh --version v0.2.6
 ```
 
 Мастер объясняет каждое поле и сначала предлагает разместить подписку вместе с панелью или на отдельном сервере. Во втором варианте установка подписки продолжается из панели на другой машине. Установщик сам скачает готовый релиз для архитектуры сервера, проверит SHA256 и установит PostgreSQL, системные службы и HTTPS. Компилировать Rust не требуется.

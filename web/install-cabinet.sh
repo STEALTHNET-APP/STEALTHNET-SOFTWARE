@@ -43,7 +43,7 @@ if [[ $CABINET_PROXY == caddy ]] && ss -Hltn '( sport = :80 or sport = :443 )' |
 fi
 case $(uname -m) in x86_64) ARCH=amd64;; aarch64|arm64) ARCH=arm64;; *) die 'Архитектура не поддерживается';; esac
 apt-get update -qq
-DEBIAN_FRONTEND=noninteractive apt-get install -y -qq curl ca-certificates jq >/dev/null
+DEBIAN_FRONTEND=noninteractive apt-get install -y -qq curl ca-certificates jq python3 make >/dev/null
 TMP=$(mktemp -d); trap 'rm -rf "$TMP"' EXIT
 say '1/5 · Проверяем кабинет в панели'
 check_cabinet_publication
@@ -57,6 +57,8 @@ chmod 755 "$TMP/sn-cabinet"
 [[ $("$TMP/sn-cabinet" --version) = sn-cabinet\ * ]] || die 'Сборка не запускается на этом сервере'
 curl -fsS --max-time 30 "$PANEL_API_URL/update-cabinet.sh" -o "$TMP/update-cabinet"
 bash -n "$TMP/update-cabinet" || die 'Некорректный скрипт обновления'
+curl --proto '=https' --proto-redir '=https' -fsSL --max-time 60 "$PANEL_API_URL/service-manager.py" -o "$TMP/service-manager.py"
+python3 "$TMP/service-manager.py" --help >/dev/null
 say '3/5 · Устанавливаем службу'
 install -m700 "$TMP/update-cabinet" /usr/local/sbin/update-cabinet
 install -m755 "$TMP/sn-cabinet" /usr/local/bin/sn-cabinet
@@ -91,6 +93,7 @@ systemctl enable --now sn-cabinet >/dev/null
 ready=
 for attempt in {1..12}; do if curl -fsS --max-time 10 http://127.0.0.1:8090/ready >/dev/null; then ready=1;break;fi;sleep 2;done
 [[ -n "$ready" ]] || die 'Служба не готова: journalctl -u sn-cabinet -n 50'
+python3 "$TMP/service-manager.py" install-entrypoints
 if [[ $CABINET_PROXY == external ]]; then
   printf 'Служба готова на 127.0.0.1:8090. Добавьте %s в существующий HTTPS reverse proxy и передавайте X-Real-IP. Инструкция: %s/cabinet-installation.html#proxy\n' "$CABINET_PUBLIC_URL" "$PANEL_API_URL"
   exit 0

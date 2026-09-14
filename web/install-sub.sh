@@ -30,7 +30,7 @@ case "$DOMAIN" in localhost|localhost:*|127.*|0.0.0.0*|'[::1]'*|'[::]'*) die "н
 [[ ! -e /etc/sn-sub/env && ! -e /etc/systemd/system/sn-sub.service && ! -e /usr/local/bin/sn-sub ]] || die "sn-sub уже установлен. Повторная установка отменена; настройки и ключ сохранены. Инструкция обновления: /subscription-installation.html на панели"
 case $(uname -m) in x86_64) ARCH=amd64;; aarch64|arm64) ARCH=arm64;; *) die "неподдерживаемая архитектура";; esac
 missing=()
-for dep in curl jq; do command -v "$dep" >/dev/null || missing+=("$dep"); done
+for dep in curl jq python3 make; do command -v "$dep" >/dev/null || missing+=("$dep"); done
 [[ -f /etc/ssl/certs/ca-certificates.crt ]] || missing+=(ca-certificates)
 if (( ${#missing[@]} )); then apt-get update -qq; DEBIAN_FRONTEND=noninteractive apt-get install -y -qq "${missing[@]}"; fi
 TMP=$(mktemp -d); trap 'rm -rf "$TMP"' EXIT
@@ -52,6 +52,8 @@ for url in "${sources[@]}"; do
   fi
 done
 [[ -n "$found" ]] || die "не найдена работающая сборка sn-sub для $ARCH. Обновите панель или укажите SUB_BINARY_URL"
+curl --proto '=https' --proto-redir '=https' -fsSL --max-time 60 "$PANEL_URL/service-manager.py" -o "$TMP/service-manager.py"
+python3 "$TMP/service-manager.py" --help >/dev/null
 say "3/4 · Устанавливаем службу"
 install -d -m700 /etc/sn-sub
 install -m755 "$TMP/sn-sub" /usr/local/bin/sn-sub
@@ -92,6 +94,7 @@ for attempt in {1..12}; do
   sleep 2
 done
 [[ -n "$ready" ]] || die "служба не готова. Смотрите journalctl -u sn-sub -n 50; проверьте ключ и занятость порта 8081. Не запускайте установку повторно: исправьте /etc/sn-sub/env и выполните systemctl restart sn-sub"
+python3 "$TMP/service-manager.py" install-entrypoints
 cat <<EOF
 
 $VERSION работает и получает данные панели. База на этом сервере не нужна.

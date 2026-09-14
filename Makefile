@@ -1,14 +1,16 @@
 SHELL := /bin/bash
-.PHONY: update status logs doctor test-release help
+.PHONY: update start stop restart status logs doctor test-release help
 
 help:
-	@printf 'STEALTHNET\n  make update       обновить установленную панель\n  make update VERSION=v0.2.5  выбрать опубликованную версию\n  make status       состояние служб\n  make doctor       проверить релиз, API и базу\n  make logs         журнал API\n'
+	@printf 'STEALTHNET\n  make update       обновить установленную панель\n  make update VERSION=v0.2.6  выбрать опубликованную версию\n  make start        запустить службы\n  make stop         остановить службы\n  make restart      перезапустить службы\n  make status       состояние служб\n  make doctor       проверить релиз, API и базу\n  make logs         журнал API\n'
 
 update:
 	@bash ./update.sh $(if $(VERSION),--version '$(VERSION)',)
 
-status:
-	@stealthnet status
+SERVICE_MANAGER := $(if $(wildcard current/web/service-manager.py),current/web/service-manager.py,web/service-manager.py)
+
+start stop restart status:
+	@python3 $(SERVICE_MANAGER) $@
 
 logs:
 	@stealthnet logs

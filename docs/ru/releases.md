@@ -51,7 +51,7 @@ SHA256 защищает от повреждения и подмены относ
 Локальная сборка пакетов из **реальных Linux-бинарников**:
 
 ```bash
-python3 deploy/package-release.py --version v0.2.5 --builds /path/to/builds --output /path/to/dist
+python3 deploy/package-release.py --version v0.2.6 --builds /path/to/builds --output /path/to/dist
 ```
 
 В `builds/amd64` и `builds/arm64` должны лежать семь перечисленных бинарников. macOS Mach-O и бинарники другой архитектуры отклоняются.

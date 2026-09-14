@@ -26,7 +26,7 @@ Use Debian/Ubuntu, systemd, amd64/arm64 and outbound HTTPS to the panel. Do not 
 
 ## Updates
 
-When updating a release-based installation to v0.2.5 or later, a standard customer portal installed on the same server for this panel is updated with it:
+When updating a release-based installation to v0.2.6 or later, a standard customer portal installed on the same server for this panel is updated with it:
 
 ```bash
 cd /opt/stealthnet-software && make update
@@ -34,13 +34,33 @@ cd /opt/stealthnet-software && make update
 
 No separate portal command is needed in this setup. The updater preserves the key and settings, checks service readiness, and restores the previous binaries on failure. A disabled and stopped service is not started automatically. Running the command again also updates a stale portal binary when the panel is already current.
 
-A portal **on another server** is updated on that server after the panel:
+### Commands on every server
+
+Every server uses the same directory and commands. Update the panel first, then run updates on separate portal and subscription servers; they download builds from their own panel. A command manages only components on the server where it runs.
 
 ```bash
-/usr/local/sbin/update-cabinet
+cd /opt/stealthnet-software
 ```
 
-This separate command is also available for custom layouts and panels installed from source. It updates the portal and Mini App. The subscription page and client app list belong to the subscription service.
+| Command | Action |
+|---|---|
+| `make update` | Update installed components |
+| `make start` | Start services |
+| `make stop` | Stop services |
+| `make restart` | Restart services |
+| `make status` | Show status |
+
+Caddy, PostgreSQL and boot-time enablement are unchanged. On the panel server, commands manage the panel, its local subscription service, configured bot and installed portal. On a separate server they manage the portal, subscription service, or both. A bot without a token is not started.
+
+New installers create these commands automatically. If a separate service predates v0.2.6 and has no directory with a Makefile yet, add the commands once as root (keys and settings are preserved):
+
+```bash
+apt-get update && apt-get install -y curl ca-certificates python3 make
+curl --proto '=https' --tlsv1.2 -fsSL https://raw.githubusercontent.com/STEALTHNET-APP/STEALTHNET-SOFTWARE/v0.2.6/web/service-manager.py -o /root/stealthnet-service-manager.py
+python3 /root/stealthnet-service-manager.py install-entrypoints
+```
+
+Then use `cd /opt/stealthnet-software && make update`. Older update commands remain available. Existing Docker installations should use their Compose file.
 
 ## Environment and maintenance
 
