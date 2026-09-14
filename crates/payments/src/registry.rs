@@ -149,8 +149,8 @@ impl Registry {
         self.refresh(pool).await;
         for p in &self.providers {
             sqlx::query(
-                "INSERT INTO payment_providers (id, title, currencies, is_configured, sort_order, updated_at)
-                 VALUES ($1, $2, $3, $4, $5, now())
+                "INSERT INTO payment_providers (id, title, currencies, is_configured, sort_order, is_enabled, updated_at)
+                 VALUES ($1, $2, $3, $4, $5, $6, now())
                  ON CONFLICT (id) DO UPDATE SET
                     currencies = EXCLUDED.currencies,
                     is_configured = EXCLUDED.is_configured,
@@ -161,6 +161,7 @@ impl Registry {
             .bind(p.currencies())
             .bind(p.is_configured())
             .bind(p.sort_order())
+            .bind(p.enabled_by_default())
             .execute(pool)
             .await?;
         }

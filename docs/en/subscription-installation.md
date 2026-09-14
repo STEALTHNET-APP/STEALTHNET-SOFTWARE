@@ -74,13 +74,13 @@ The service key stays in `/etc/sn-sub/env`, not a publicly readable unit file. S
 For a local installation, update the panel with `make update`; it updates the subscription service too. For a separate server, update the subscription service first, then the panel. Run as root on the subscription server:
 
 ```bash
-curl --proto '=https' --tlsv1.2 -fsSL https://raw.githubusercontent.com/STEALTHNET-APP/STEALTHNET-SOFTWARE/v0.2.3/web/update-sub.sh -o /root/stealthnet-update-sub.sh
+curl --proto '=https' --tlsv1.2 -fsSL https://raw.githubusercontent.com/STEALTHNET-APP/STEALTHNET-SOFTWARE/v0.2.4/web/update-sub.sh -o /root/stealthnet-update-sub.sh
 case "$(uname -m)" in
   x86_64) SN_SUB_ARCH=amd64 ;;
   aarch64|arm64) SN_SUB_ARCH=arm64 ;;
   *) echo 'Unsupported architecture'; exit 1 ;;
 esac
-SUB_BINARY_URL="https://github.com/STEALTHNET-APP/STEALTHNET-SOFTWARE/releases/download/v0.2.3/sn-sub-linux-$SN_SUB_ARCH" bash /root/stealthnet-update-sub.sh
+SUB_BINARY_URL="https://github.com/STEALTHNET-APP/STEALTHNET-SOFTWARE/releases/download/v0.2.4/sn-sub-linux-$SN_SUB_ARCH" bash /root/stealthnet-update-sub.sh
 ```
 
 The updater preserves `/etc/sn-sub/env`, replaces the binary atomically and checks readiness. If startup fails, it restores the previous binary.

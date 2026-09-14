@@ -8,6 +8,18 @@ Customers see subscription status, available locations, apps and instructions. P
 
 ## Workflow
 
+Installation automatically creates 16 app entries with download links:
+
+| Platform | Apps |
+|---|---|
+| iOS | Happ, Streisand, V2Box, Shadowrocket |
+| Android | Happ, v2rayNG, FlClash, NekoBox |
+| Windows | Hiddify, v2rayN, Karing |
+| macOS | Happ, Hiddify, Stash |
+| Linux | Hiddify, sing-box |
+
+Edit links, order, instructions and visibility, or add your own apps. The update adds missing standard entries once and preserves existing settings. No demo customers or payments are needed. Apps without a configured deep link use a copy-link button for manual import. Icons and general RU/EN instructions are built into the page.
+
 Add apps for every platform, including download links, deep links and clear steps. Test on a phone and a computer.
 
 ## Shared brand and hosting

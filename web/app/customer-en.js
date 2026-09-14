@@ -303,6 +303,8 @@ const CT_EN = Object.freeze({
   "Бот для привязки не настроен": "Telegram linking has not been configured",
   "Сайт ещё не опубликован": "The website has not been published yet",
   "Регистрация отключена": "Registration is disabled",
+  "Нет кода? Создайте аккаунт и сохраните свой код доступа.": "No code yet? Create an account and save your access code.",
+  "Регистрация на сайте сейчас закрыта. Если у вас уже есть аккаунт, войдите по коду. Для нового подключения обратитесь в поддержку.": "Website registration is currently closed. If you already have an account, sign in with your code. To get started as a new customer, contact support.",
   "Сначала сохраните код доступа": "Save your access code first",
   "Покупки на сайте отключены": "Purchases are disabled on this website",
   "Покупки в приложении отключены. Откройте бота или напишите в поддержку": "Purchases are disabled in the app. Open the bot or contact support",

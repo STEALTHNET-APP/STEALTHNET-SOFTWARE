@@ -100,6 +100,9 @@ function richText(value) {
 const cleanBadge = (text) => String(text || "").replace(/[\p{Extended_Pictographic}\p{Regional_Indicator}\uFE0F\u200D\u20E3]/gu, "").trim();
 const deviceLabel = (count) => !count ? CT.html("Без лимита устройств") : `${count} ${new Intl.PluralRules(CT.locale).select(count) === "one" ? CT.html("устройство") : new Intl.PluralRules(CT.locale).select(count) === "few" ? CT.html("устройства") : CT.html("устройств")}`;
 const duration = (days) => `${days} ${new Intl.PluralRules(CT.locale).select(days) === "one" ? CT.html("день") : new Intl.PluralRules(CT.locale).select(days) === "few" ? CT.html("дня") : CT.html("дней")}`;
+function canChoosePlan() {
+  return config.shop_enabled === true || config.free_access_available === true;
+}
 function paymentOptions(catalog, tariff, days, serviceCurrency) {
   const price = tariff.prices.find(p => p.days === days && p.currency === serviceCurrency);
   if (!price) return [];
@@ -280,7 +283,7 @@ dialog.addEventListener("click", (e) => {
   }
 });
 function syncBack() {
-  if (dialog.open || currentTicket || (section === "payments" && config.shop_enabled)) tg?.BackButton?.show?.();
+  if (dialog.open || currentTicket || (section === "payments" && canChoosePlan())) tg?.BackButton?.show?.();
   else tg?.BackButton?.hide?.();
 }
 tg?.BackButton?.onClick?.(() => {
@@ -299,7 +302,7 @@ const ICON = {
 
 const navItems = () => [
   ["home", CT.html("Подписка")],
-  [config.shop_enabled ? "shop" : "payments", config.shop_enabled ? CT.html("Тарифы") : CT.html("Платежи")],
+  [canChoosePlan() ? "shop" : "payments", canChoosePlan() ? CT.html("Тарифы") : CT.html("Платежи")],
   ...(config.referral_enabled ? [["ref", CT.html("Друзья")]] : []),
   ["help", CT.html("Помощь")],
 ];
@@ -352,7 +355,7 @@ document.querySelector("#refresh").onclick = async () => {
     me = await api("/me");
     config = await api("/config");
     shop = null;
-    if (section === "shop" && !config.shop_enabled) section = "home";
+    if (section === "shop" && !canChoosePlan()) section = "home";
     if (section === "ref" && !config.referral_enabled) section = "home";
     if (currentTicket?.id) currentTicket = { id: currentTicket.id };
     generation++;
@@ -404,7 +407,7 @@ function legacyDrawHome() {
   </section>
   <div class="tiles rise"><${config.devices_enabled ? CT.html('button type="button" id="devices" aria-label="Мои устройства"') : 'div'} class="tile"><div class="n">${me.devices || 0}<span class="of">/${me.device_limit || "∞"}</span></div><div class="l">Устройства</div></${config.devices_enabled ? 'button' : 'div'}><div class="tile"><div class="n">${bytes(used)}</div><div class="l">Израсходовано</div></div><div class="tile"><div class="n">${me.traffic_reset_at && me.reset_strategy !== "no_reset" ? shortDate(me.traffic_reset_at) : "—"}</div><div class="l">Обновится</div></div></div>
   <div id="addonsEntry"></div>
-  ${active && me.sub_url ? CT.html('<div class="btns rise"><button class="btn" id="connect">Подключиться</button><button class="btn line" id="copySub">Скопировать ссылку</button></div><p class="note rise">Ссылку вставляют в приложение VPN. Кнопка «Подключиться» откроет страницу, где приложение подберётся под ваше устройство.</p>') : config.shop_enabled ? CT.html('<button class="btn" id="buy">Выбрать тариф</button>') : CT.html('<button class="btn" id="getHelp">Обратиться в поддержку</button>')}
+  ${active && me.sub_url ? CT.html('<div class="btns rise"><button class="btn" id="connect">Подключиться</button><button class="btn line" id="copySub">Скопировать ссылку</button></div><p class="note rise">Ссылку вставляют в приложение VPN. Кнопка «Подключиться» откроет страницу, где приложение подберётся под ваше устройство.</p>') : canChoosePlan() ? CT.html('<button class="btn" id="buy">Выбрать тариф</button>') : CT.html('<button class="btn" id="getHelp">Обратиться в поддержку</button>')}
   ${config.welcome && config.welcome !== CT.html("Подписка, подключение и помощь — в одном месте.") ? `<p class="note">${esc(config.welcome)}</p>` : ""}
   ${active && days !== null && days <= 3 ? CT.html('<div class="warn-box">Подписка скоро закончится. Продлите её заранее, чтобы сохранить доступ.</div>') : ""}`;
   root.querySelector("#connect")?.addEventListener("click", () => openURL(me.sub_url));
@@ -418,7 +421,7 @@ function legacyDrawHome() {
   if (logo) logo.onerror = () => logo.remove();
 }
 function legacyDrawAccount() {
-  showDialog(CT.html("Управление подпиской"), CT.html`<p>${esc(me.username)} · ${esc(statusLabel[me.status] || CT.html("Нет подписки"))}</p><div class="btns">${config.shop_enabled ? CT.html('<button class="btn" id="renewAccount">Продлить или сменить тариф</button>') : ""}<button class="btn soft" id="historyAccount">История платежей</button><button class="btn line" id="refreshAccount">Обновить данные</button></div><section class="auto-section"><label class="auto-row"><span>Автопродление</span><input type="checkbox" id="autorenew" ${me.autorenew ? "checked" : ""}></label><p class="note">Продление сохранённым способом оплаты. Если автосписание недоступно, бот напомнит об оплате.</p></section>`);
+  showDialog(CT.html("Управление подпиской"), CT.html`<p>${esc(me.username)} · ${esc(statusLabel[me.status] || CT.html("Нет подписки"))}</p><div class="btns">${canChoosePlan() ? CT.html('<button class="btn" id="renewAccount">Продлить или сменить тариф</button>') : ""}<button class="btn soft" id="historyAccount">История платежей</button><button class="btn line" id="refreshAccount">Обновить данные</button></div><section class="auto-section"><label class="auto-row"><span>Автопродление</span><input type="checkbox" id="autorenew" ${me.autorenew ? "checked" : ""}></label><p class="note">Продление сохранённым способом оплаты. Если автосписание недоступно, бот напомнит об оплате.</p></section>`);
   dialog.querySelector("#renewAccount")?.addEventListener("click", () => { dialog.close(); navigate("shop"); });
   dialog.querySelector("#historyAccount").onclick = () => { dialog.close(); navigate("payments"); };
   dialog.querySelector("#refreshAccount").onclick = async e => { e.target.disabled = true; await document.querySelector("#refresh").onclick(); if (dialog.open) drawAccount(); };

@@ -36,11 +36,12 @@ pub async fn activate_free(pool: &Pool, client_id: i64, tariff_id: i64, days: i3
     // кто позовёт эту ручку напрямую.
     let amount: Option<i64> = sqlx::query_scalar(
         "SELECT tp.amount_minor FROM tariff_prices tp JOIN tariffs t ON t.id=tp.tariff_id
-          WHERE tp.tariff_id = $1 AND tp.period_days = $2 AND tp.is_active AND t.is_active
-          ORDER BY amount_minor LIMIT 1",
+          WHERE tp.tariff_id = $1 AND tp.period_days = $2 AND tp.currency = $3
+            AND tp.is_active AND t.is_active AND t.is_visible",
     )
     .bind(tariff_id)
     .bind(days)
+    .bind(&currency)
     .fetch_optional(&mut *tx)
     .await?;
     if amount != Some(0) {

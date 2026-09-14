@@ -13,9 +13,9 @@ SSH into a clean Debian/Ubuntu server **as root**, then run:
 ```bash
 apt-get update
 apt-get install -y git curl ca-certificates
-git clone --branch v0.2.3 --depth 1 https://github.com/STEALTHNET-APP/STEALTHNET-SOFTWARE.git /root/stealthnet-installer
+git clone --branch v0.2.4 --depth 1 https://github.com/STEALTHNET-APP/STEALTHNET-SOFTWARE.git /root/stealthnet-installer
 cd /root/stealthnet-installer
-bash install.sh --version v0.2.3
+bash install.sh --version v0.2.4
 ```
 
 The wizard asks for panel/subscription domains, service name, currency and owner credentials. It downloads the release for your server architecture, verifies SHA256, and installs PostgreSQL, system services and HTTPS. You do not need to compile Rust.
@@ -96,7 +96,7 @@ make update
 Or run `stealthnet update` from any directory. To select a particular **published** tag:
 
 ```bash
-make update VERSION=v0.2.3
+make update VERSION=v0.2.4
 ```
 
 The example pins the published release used in this guide. `make update` without a version selects the latest stable release. The updater downloads and verifies files, saves a PostgreSQL dump and configuration, applies migrations, atomically switches `current`, restarts panel services and checks readiness. Nodes/Xray, a separate subscription service and the customer website have their own update procedures.
@@ -113,7 +113,7 @@ Releases before **0.1.7** could match `/app.css` with Caddy's `/app*` route and 
 
 ```bash
 cd /opt/stealthnet-software
-make update VERSION=v0.2.3
+make update VERSION=v0.2.4
 ```
 
 The update creates a backup and repairs the legacy rule in installer-managed configuration while preserving other settings. Afterwards, reload the browser without cached content (`Ctrl+F5` / `Cmd+Shift+R`). For a custom reverse proxy, match `/app` and `/app/*` without intercepting `/app.css`. New installations and updates check the main CSS and JavaScript content types and contents before reporting success. The login page displays the API version without a staging label.

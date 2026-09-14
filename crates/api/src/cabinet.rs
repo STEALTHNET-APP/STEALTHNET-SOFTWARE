@@ -151,8 +151,17 @@ pub fn routes()->Router<AppState>{
         .route("/api/cabinet-service/installations/{id}/token",post(install_token))
         .route("/api/cabinet-service/installations/{id}/revoke",post(revoke_installation))
 }
-async fn config(State(st):State<AppState>,h:HeaderMap)->Result<Json<Value>>{installation(&st,&h,"GET").await?;Ok(Json(settings(&st).await?))}
-async fn catalog(State(st):State<AppState>,h:HeaderMap)->Result<Json<Value>>{installation(&st,&h,"GET").await?;crate::miniapp::tariff_catalog(&st,None).await.map(Json)}
+async fn config(State(st):State<AppState>,h:HeaderMap)->Result<Json<Value>>{
+    installation(&st,&h,"GET").await?;
+    let mut conf=settings(&st).await?;
+    conf["free_access_available"]=json!(crate::miniapp::free_access_available(&st).await?);
+    Ok(Json(conf))
+}
+async fn catalog(State(st):State<AppState>,h:HeaderMap)->Result<Json<Value>>{
+    installation(&st,&h,"GET").await?;
+    let paid=flag(&settings(&st).await?,"shop_enabled");
+    crate::miniapp::tariff_catalog(&st,None,paid).await.map(Json)
+}
 #[derive(Deserialize)]struct Register{request_key:String}
 async fn register(State(st):State<AppState>,h:HeaderMap,Json(b):Json<Register>)->Result<Json<Value>>{
     let (install,_)=installation(&st,&h,"POST").await?;

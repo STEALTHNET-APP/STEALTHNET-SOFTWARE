@@ -238,13 +238,7 @@ SELECT v.ord, v.name, v.pattern, t.id, v.action
   ) AS v(ord, name, pattern, tpl, action)
   LEFT JOIN subscription_templates t ON t.code = v.tpl;
 
--- ── приложения на странице подписки ──
-INSERT INTO subscription_page_apps (platform, sort_order, name, deeplink, store_url) VALUES
-('ios', 1, 'Happ', 'happ://add/{{URL}}', 'https://apps.apple.com/app/happ'),
-('ios', 2, 'Streisand', 'streisand://import/{{URL}}', 'https://apps.apple.com/app/streisand'),
-('android', 1, 'Happ', 'happ://add/{{URL}}', 'https://play.google.com/store/apps/details?id=com.happproxy'),
-('android', 2, 'v2rayNG', 'v2rayng://install-sub?url={{URL}}', 'https://github.com/2dust/v2rayNG/releases'),
-('windows', 1, 'Hiddify', 'hiddify://import/{{URL}}', 'https://hiddify.com');
+-- Приложения страницы подписки устанавливаются миграцией 048 и не требуют demo seed.
 
 -- ── настройки ──
 INSERT INTO settings (key, value) VALUES

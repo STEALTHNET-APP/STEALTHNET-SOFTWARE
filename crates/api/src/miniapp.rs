@@ -26,6 +26,10 @@ use crate::state::AppState;
 use crate::cabinet::Customer;
 use sn_core::{Error, Result};
 
+#[cfg(test)]
+#[path = "miniapp_checkout_tests.rs"]
+mod checkout_tests;
+
 pub fn miniapp_routes(st:AppState) -> Router<AppState> {
     Router::new()
         .route("/api/app/config", get(app_config))
@@ -260,9 +264,15 @@ async fn app_me(State(st): State<AppState>, customer: Customer) -> Result<Json<V
 
 /// Витрина: тарифы с ценами и способами оплаты.
 async fn app_tariffs(State(st): State<AppState>, customer: Customer) -> Result<Json<Value>> {
-    tariff_catalog(&st,Some(customer.id)).await.map(Json)
+    let paid = purchases_enabled(&st, customer.cabinet).await?;
+    tariff_catalog(&st,Some(customer.id),paid).await.map(Json)
 }
-pub(crate) async fn tariff_catalog(st:&AppState, client_id:Option<i64>)->Result<Value> {
+pub(crate) async fn free_access_available(st:&AppState)->Result<bool> {
+    let currency = sn_core::money::service_currency(&st.pool).await;
+    Ok(sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM tariffs t JOIN tariff_prices p ON p.tariff_id=t.id WHERE t.is_active AND t.is_visible AND p.is_active AND p.currency=$1 AND p.amount_minor=0)")
+        .bind(currency).fetch_one(&st.pool).await?)
+}
+pub(crate) async fn tariff_catalog(st:&AppState, client_id:Option<i64>, paid:bool)->Result<Value> {
     let currency = sn_core::money::service_currency(&st.pool).await;
 
     // Использованный пробный не показываем: он одноразовый, и увидеть
@@ -286,10 +296,12 @@ pub(crate) async fn tariff_catalog(st:&AppState, client_id:Option<i64>)->Result<
         let id: i64 = t.get("id");
         let prices = sqlx::query(
             "SELECT period_days, currency, amount_minor FROM tariff_prices
-              WHERE tariff_id = $1 AND is_active AND (currency = $2 OR currency = 'XTR') ORDER BY period_days",
+              WHERE tariff_id = $1 AND is_active AND (currency = $2 OR currency = 'XTR')
+                AND ($3 OR (currency = $2 AND amount_minor = 0)) ORDER BY period_days",
         )
         .bind(id)
         .bind(&currency)
+        .bind(paid)
         .fetch_all(&st.pool)
         .await?;
 
@@ -318,19 +330,19 @@ pub(crate) async fn tariff_catalog(st:&AppState, client_id:Option<i64>)->Result<
 
     // Способы оплаты — общие для валюты, спрашиваем реестр.
     let telegram=if let Some(id)=client_id {sqlx::query_scalar::<_,bool>("SELECT EXISTS(SELECT 1 FROM client_identities WHERE client_id=$1 AND kind='telegram' AND is_verified)").bind(id).fetch_one(&st.pool).await?} else {false};
-    let methods: Vec<Value> = st
+    let methods: Vec<Value> = if paid { st
         .payments
         .enabled_for_currency(&st.pool, &currency)
         .await
         .iter()
         .filter(|p|p.id()!="stars"||telegram)
         .map(|p| json!({ "id": p.id(), "title": p.title() }))
-        .collect();
+        .collect() } else { Vec::new() };
 
     let mut methods_by_currency=serde_json::Map::new();
     methods_by_currency.insert(currency.clone(),json!(methods));
     // Stars — только отдельно включаемый способ оплаты, не валюта витрины.
-    if currency != "XTR" && if let Some(id)=client_id {sqlx::query_scalar::<_,bool>("SELECT EXISTS(SELECT 1 FROM client_identities WHERE client_id=$1 AND kind='telegram' AND is_verified)").bind(id).fetch_one(&st.pool).await?} else {false} {
+    if paid && currency != "XTR" && telegram {
         let stars=st.payments.enabled_for_currency(&st.pool,"XTR").await.iter().filter(|p|p.id()=="stars").map(|p|json!({"id":p.id(),"title":p.title()})).collect::<Vec<_>>();
         methods_by_currency.insert("XTR".into(),json!(stars));
     }
@@ -358,16 +370,13 @@ async fn app_pay(
     Json(b): Json<PayBody>,
 ) -> Result<Json<Value>> {
     let client_id = customer.id;
-    check_shop(&st,&customer).await?;
+    customer.can_buy()?;
     sn_core::money::check_purchase_currency(&st.pool, &b.currency, &b.provider).await?;
     let _checkout_slot = CHECKOUT_SLOTS.acquire().await
         .map_err(|_| Error::bad("оформление временно недоступно"))?;
     let mut checkout_lock=st.pool.begin().await?;
     sqlx::query("SELECT pg_advisory_xact_lock($1)").bind(-client_id).execute(&mut *checkout_lock).await?;
     let promo_id=promo_id(&st,&b.promo).await?;
-    let existing:Option<Value>=sqlx::query_scalar("SELECT jsonb_build_object('payment_id',id,'url',pay_url,'amount_minor',amount_minor,'currency',currency,'instructions',provider_payload->>'instructions') FROM payments WHERE client_id=$1 AND tariff_id=$2 AND provider=$3 AND currency=$4 AND period_days=$5+COALESCE((SELECT CASE WHEN kind='days' THEN value ELSE 0 END FROM promo_codes WHERE id=$6),0) AND promo_code_id IS NOT DISTINCT FROM $6 AND status='pending' AND expires_at>now() AND pay_url IS NOT NULL ORDER BY id DESC LIMIT 1")
-        .bind(client_id).bind(b.tariff_id).bind(&b.provider).bind(&b.currency).bind(b.days).bind(promo_id).fetch_optional(&st.pool).await?;
-    if let Some(invoice)=existing {return Ok(Json(invoice));}
 
     // Цену берём из базы, а не из запроса: сумма, присланная клиентом,
     // — это предложение заплатить сколько ему хочется.
@@ -394,6 +403,13 @@ async fn app_pay(
         sn_core::billing::activate_free(&st.pool, client_id, b.tariff_id, b.days).await?;
         return Ok(Json(json!({ "free": true })));
     }
+
+    // The purchase switch and payment providers apply only to paid access.
+    // Check before reusing an invoice too: disabling purchases must take effect immediately.
+    check_shop(&st,&customer).await?;
+    let existing:Option<Value>=sqlx::query_scalar("SELECT jsonb_build_object('payment_id',id,'url',pay_url,'amount_minor',amount_minor,'currency',currency,'instructions',provider_payload->>'instructions') FROM payments WHERE client_id=$1 AND tariff_id=$2 AND provider=$3 AND currency=$4 AND period_days=$5+COALESCE((SELECT CASE WHEN kind='days' THEN value ELSE 0 END FROM promo_codes WHERE id=$6),0) AND promo_code_id IS NOT DISTINCT FROM $6 AND status='pending' AND expires_at>now() AND pay_url IS NOT NULL ORDER BY id DESC LIMIT 1")
+        .bind(client_id).bind(b.tariff_id).bind(&b.provider).bind(&b.currency).bind(b.days).bind(promo_id).fetch_optional(&st.pool).await?;
+    if let Some(invoice)=existing {return Ok(Json(invoice));}
 
     let telegram_id: Option<i64> = sqlx::query_scalar::<_, String>(
         "SELECT value FROM client_identities WHERE client_id = $1 AND kind = 'telegram'",
@@ -769,14 +785,21 @@ async fn app_config(State(st):State<AppState>) -> Result<Json<Value>> {
     let mut config=crate::cabinet::settings(&st).await?;
     let s=bc::load(&st.pool).await?;
     config["shop_enabled"]=json!(config["shop_enabled"]==true&&bc::flag(&s,"bot.miniapp_shop",true));
+    config["free_access_available"]=json!(free_access_available(&st).await?);
     config["devices_enabled"]=json!(config["devices_enabled"]==true&&bc::flag(&s,"bot.miniapp_devices",true));
     Ok(Json(config))
 }
+async fn purchases_enabled(st:&AppState,cabinet:bool)->Result<bool> {
+    if crate::cabinet::settings(st).await?["shop_enabled"]!=true {return Ok(false);}
+    if cabinet {return Ok(true);}
+    let s=bc::load(&st.pool).await?;
+    Ok(bc::flag(&s,"bot.miniapp_shop",true))
+}
 async fn check_shop(st:&AppState,customer:&Customer)->Result<()> {
     customer.can_buy()?;
-    if customer.cabinet {if crate::cabinet::settings(st).await?["shop_enabled"]!=true{return Err(Error::bad("Покупки на сайте отключены"));}return Ok(());}
-    let s=bc::load(&st.pool).await?;
-    if crate::cabinet::settings(st).await?["shop_enabled"]!=true || !bc::flag(&s,"bot.miniapp_shop",true) {return Err(Error::bad("Покупки в приложении отключены. Откройте бота или напишите в поддержку"));}
+    if !purchases_enabled(st,customer.cabinet).await? {
+        return Err(Error::bad(if customer.cabinet {"Покупки на сайте отключены"} else {"Покупки в приложении отключены. Откройте бота или напишите в поддержку"}));
+    }
     Ok(())
 }
 async fn check_message(st:&AppState, _customer:&Customer, body:&str)->Result<()> {
@@ -790,10 +813,11 @@ async fn promo_id(st:&AppState, code:&str)->Result<Option<i64>> {
     id.map(Some).ok_or_else(||Error::bad("Промокод не найден"))
 }
 async fn app_quote(State(st):State<AppState>, customer:Customer, Json(b):Json<PayBody>)->Result<Json<Value>> {
-    let client=customer.id; check_shop(&st,&customer).await?;
+    let client=customer.id; customer.can_buy()?;
     sn_core::money::check_purchase_currency(&st.pool, &b.currency, &b.provider).await?;
     let amount:i64=sqlx::query_scalar("SELECT p.amount_minor FROM tariff_prices p JOIN tariffs t ON t.id=p.tariff_id WHERE p.tariff_id=$1 AND p.period_days=$2 AND p.currency=$3 AND p.is_active AND t.is_active AND t.is_visible")
         .bind(b.tariff_id).bind(b.days).bind(&b.currency).fetch_optional(&st.pool).await?.ok_or_else(||Error::bad("Цена не найдена"))?;
+    if amount != 0 {check_shop(&st,&customer).await?;}
     let (charge,days)=if let Some(id)=promo_id(&st,&b.promo).await? {
         let mut tx=st.pool.begin().await?;
         let result=sn_payments::promo::reserve(&mut tx,client,b.tariff_id,id,amount,b.days,&b.currency).await?;
