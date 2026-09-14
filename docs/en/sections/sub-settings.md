@@ -8,9 +8,13 @@ Profile title, announcements, refresh interval and status messages are sent to t
 
 ## Workflow
 
-1. Set the name and support link.
-2. save.
-3. refresh the subscription in the app. Use response rules to test the selected format.
+1. Review the starter content: the service name, a short Announce instruction, and explanations for six access states. Empty form fields are prefilled in the panel language.
+2. Set your project's support contact. If one is saved in portal or bot settings, the form suggests it; otherwise it displays an example address.
+3. Click **Save changes**, then refresh the subscription in the app. Starter content is not sent to clients until you save it.
+
+Existing values are preserved. After the first save, intentionally cleared fields stay empty. Happ routes and extra HTTP headers are optional; empty sections explain what is configured. An empty Happ routing field does not change the app's routes.
+
+These settings and client app cards belong to the subscription service. They do not require installing or updating the customer portal, which handles the storefront, registration, purchases, and Mini App.
 
 ## Checking the client app
 

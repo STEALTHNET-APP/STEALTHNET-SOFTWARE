@@ -24,12 +24,29 @@ The installer adds a separate Caddy site through `/etc/caddy/customer-sites/cabi
 
 Use Debian/Ubuntu, systemd, amd64/arm64 and outbound HTTPS to the panel. Do not copy the database password. The service binds to `127.0.0.1:8090`; publish its HTTPS domain through a reverse proxy.
 
-## Environment and maintenance
+## Updates
 
-Secrets are in `/etc/sn-cabinet/env`, permissions 600. The systemd service is `sn-cabinet`. Setup installs this update command:
+When updating a release-based installation to v0.2.5 or later, a standard customer portal installed on the same server for this panel is updated with it:
+
+```bash
+cd /opt/stealthnet-software && make update
+```
+
+No separate portal command is needed in this setup. The updater preserves the key and settings, checks service readiness, and restores the previous binaries on failure. A disabled and stopped service is not started automatically. Running the command again also updates a stale portal binary when the panel is already current.
+
+A portal **on another server** is updated on that server after the panel:
 
 ```bash
 /usr/local/sbin/update-cabinet
+```
+
+This separate command is also available for custom layouts and panels installed from source. It updates the portal and Mini App. The subscription page and client app list belong to the subscription service.
+
+## Environment and maintenance
+
+Secrets are in `/etc/sn-cabinet/env`, permissions 600. The systemd service is `sn-cabinet`. Check its status:
+
+```bash
 systemctl status sn-cabinet --no-pager
 journalctl -u sn-cabinet -n 80 --no-pager
 curl -fsS http://127.0.0.1:8090/ready

@@ -21,12 +21,15 @@ import sys
 import tempfile
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 
 # Immutable release directories must not acquire Python bytecode on import.
 sys.dont_write_bytecode = True
 
 ROOT = Path('/opt/stealthnet-software')
+CABINET_ENV = Path('/etc/sn-cabinet/env')
+CABINET_BIN = Path('/usr/local/bin/sn-cabinet')
 SERVICES = ('api', 'sub', 'worker', 'bot')
 BINS = ('sn-api', 'sn-sub', 'sn-worker', 'sn-bot', 'sn-admin', 'sn-node', 'sn-cabinet')
 DOMAIN = re.compile(r'(?=.{1,253}\Z)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}\Z')
@@ -656,24 +659,101 @@ def install(args, manifest):
     ui('  Кабинет и Mini App: Настройки → Клиентский кабинет → Установить.')
     ui('  Проверка: stealthnet doctor   Обновление: stealthnet update\n')
 
+def local_cabinet(values):
+    """Only manage the standard cabinet installed here for this exact panel."""
+    if not CABINET_ENV.is_file() or not CABINET_BIN.is_file(): return None
+    cabinet_values=read_env(CABINET_ENV)
+    if cabinet_values.get('PANEL_API_URL','').rstrip('/')!=values.get('PANEL_URL','').rstrip('/') or not values.get('PANEL_URL'):
+        return None
+    if CABINET_BIN.is_symlink():
+        raise InstallError('Нестандартный путь кабинета: проверьте /usr/local/bin/sn-cabinet перед обновлением.')
+    if run(['systemctl','show','sn-cabinet','--property=LoadState','--value'],check=False)!='loaded': return None
+    command=run(['systemctl','show','sn-cabinet','--property=ExecStart','--value'],check=False)
+    if 'path='+str(CABINET_BIN)+' ' not in command:
+        raise InstallError('Служба sn-cabinet использует нестандартный бинарник. Обновите её отдельно.')
+    active=run(['systemctl','is-active','sn-cabinet'],check=False)=='active'
+    enabled=run(['systemctl','is-enabled','sn-cabinet'],check=False) in ('enabled','enabled-runtime')
+    bind=cabinet_values.get('CABINET_BIND','127.0.0.1:8090')
+    url=urllib.parse.urlsplit('http://'+bind)
+    try: port=url.port
+    except ValueError: port=None
+    if not port or not url.hostname or url.username or url.password or url.path or url.query or url.fragment:
+        raise InstallError('Проверьте CABINET_BIND в /etc/sn-cabinet/env.')
+    host={'0.0.0.0':'127.0.0.1','::':'::1'}.get(url.hostname,url.hostname)
+    host='['+host+']' if ':' in host else host
+    return {'restart':active or enabled,'ready':f'http://{host}:{port}/ready','changed':False,'backup':None}
+
+def replace_binary(source, target):
+    fd,temporary=tempfile.mkstemp(prefix='.'+target.name+'.',dir=target.parent)
+    try:
+        with os.fdopen(fd,'wb') as out, Path(source).open('rb') as inp:
+            shutil.copyfileobj(inp,out);out.flush();os.fsync(out.fileno());os.fchmod(out.fileno(),0o755)
+        os.replace(temporary,target)
+    finally:
+        if os.path.exists(temporary): os.unlink(temporary)
+
+def cabinet_ready(url, *, attempts=30):
+    last='служба не подтвердила готовность'
+    for attempt in range(attempts):
+        try:
+            with urllib.request.urlopen(url,timeout=3) as response:
+                if response.read(64).strip()==b'ready': return
+        except Exception as error: last=health_error(error)
+        if attempt+1<attempts: time.sleep(1)
+    raise InstallError(f'Не прошла проверка кабинета {url}: {last}.')
+
+def update_local_cabinet(cabinet, directory, backup_dir):
+    if not cabinet: return
+    source=directory/'bin/sn-cabinet'
+    if sha256(source)==sha256(CABINET_BIN):
+        if cabinet['restart']: cabinet_ready(cabinet['ready'],attempts=15)
+        return
+    saved=backup_dir/'cabinet';saved.mkdir(mode=0o700)
+    cabinet['backup']=saved/'sn-cabinet';shutil.copy2(CABINET_BIN,cabinet['backup'])
+    shutil.copy2(CABINET_ENV,saved/'env');(saved/'env').chmod(0o600)
+    replace_binary(source,CABINET_BIN);cabinet['changed']=True
+    if cabinet['restart']:
+        run(['systemctl','restart','sn-cabinet'])
+        cabinet_ready(cabinet['ready'],attempts=30)
+    ui('  ✓ Кабинет на сервере панели обновлён. Ключ и настройки сохранены.','32')
+
+def restore_local_cabinet(cabinet):
+    if not cabinet or not cabinet['changed']: return
+    replace_binary(cabinet['backup'],CABINET_BIN)
+    if cabinet['restart']: run(['systemctl','restart','sn-cabinet'])
+    cabinet['changed']=False
+
 def update(args, manifest):
     if not (ROOT/'installation.json').exists(): raise InstallError('Готовая установка не найдена. Для исходников используйте существующий update.sh.')
     c=private_json(ROOT/'installation.json'); values=read_env(ROOT/'.env')
     SECRETS.extend(v for k,v in values.items() if any(s in k for s in ('TOKEN','KEY','DATABASE')))
     SECRETS.append(db_env(values)['PGPASSWORD'])
     old=(ROOT/'current').resolve()
+    cabinet=local_cabinet(values)
     if c['version']==manifest['version']:
-        validate_release(old); health(c,values); ui('  ✓ Эта версия уже установлена; службы проверены.','32'); return
+        validate_release(old); health(c,values)
+        if cabinet and sha256(old/'bin/sn-cabinet')!=sha256(CABINET_BIN):
+            saved=backup(values,c)
+            try: update_local_cabinet(cabinet,old,saved)
+            except Exception:
+                restore_local_cabinet(cabinet)
+                raise
+        elif cabinet and cabinet['restart']: cabinet_ready(cabinet['ready'],attempts=15)
+        ui('  ✓ Эта версия уже установлена; службы проверены.','32'); return
     def version_tuple(v): return tuple(map(int,re.match(r'v(\d+)\.(\d+)\.(\d+)',v).groups()))
     if version_tuple(manifest['version']) < version_tuple(c['version']): raise InstallError('Понижение версии с миграциями запрещено. Используйте резервную копию.')
     dest=step('1/4','Проверяем и сохраняем новый релиз',lambda:stage_release(args.release_dir,manifest))
-    step('2/4','Сохраняем базу данных и настройки',lambda:backup(values,c))
+    saved=step('2/4','Сохраняем базу данных и настройки',lambda:backup(values,c))
     try:
         step('3/4','Применяем миграции и переключаем службы',lambda:(run(['bash',dest/'deploy/migrate.sh'],env=db_env(values)),switch(dest),restart(values,c)))
         repair_proxy(c)
         step('4/4','Проверяем новую версию',lambda:health(c,values))
+        update_local_cabinet(cabinet,dest,saved)
     except Exception:
-        switch(old); restart(values,c)
+        try:
+            switch(old); restart(values,c)
+        finally:
+            restore_local_cabinet(cabinet)
         ui('  Выполнен возврат к прежним бинарникам. Применённые миграции остаются; резервная копия базы сохранена.','33')
         raise
     c['version']=manifest['version']; atomic(ROOT/'installation.json',json.dumps(c,ensure_ascii=False,indent=2)+'\n')
