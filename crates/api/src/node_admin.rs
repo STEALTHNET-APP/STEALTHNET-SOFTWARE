@@ -563,7 +563,7 @@ fn check_plugins(cfg: &Value) -> Result<()> {
         }
         Ok(())
     }
-    let cfg = object(cfg, &["ingressFilter", "egressFilter", "torrentBlocker", "sharedLists"])?;
+    let cfg = object(cfg, &["ingressFilter", "egressFilter", "torrentBlocker", "sharedLists", "antiScanner"])?;
     let mut names = Vec::new();
     if let Some(lists) = cfg.get("sharedLists") {
         for list in lists.as_array().ok_or_else(|| Error::bad("общие списки должны быть массивом"))? {
@@ -592,6 +592,30 @@ fn check_plugins(cfg: &Value) -> Result<()> {
             return Err(Error::bad("срок блокировки — целое число от 0 до 604800 секунд"));
         }
     }
+    if let Some(val) = cfg.get("antiScanner") {
+        let map = object(val, &["enabled", "sources", "updateIntervalSecs", "customIps"])?;
+        if map.get("enabled").is_some_and(|v| !v.is_boolean()) {
+            return Err(Error::bad("enabled должен быть true или false"));
+        }
+        if let Some(sources) = map.get("sources") {
+            let arr = sources.as_array().ok_or_else(|| Error::bad("sources должны быть массивом"))?;
+            for s in arr {
+                let url = s.as_str().ok_or_else(|| Error::bad("URL источника должен быть строкой"))?;
+                if !url.starts_with("http://") && !url.starts_with("https://") {
+                    return Err(Error::bad("источник антисканера должен быть URL (http:// или https://)"));
+                }
+            }
+        }
+        if let Some(interval) = map.get("updateIntervalSecs") {
+            let n = interval.as_u64().ok_or_else(|| Error::bad("updateIntervalSecs должен быть целым числом секунд"))?;
+            if !(300..=604_800).contains(&n) {
+                return Err(Error::bad("интервал обновления — от 300 до 604800 секунд (от 5 мин до 7 дней)"));
+            }
+        }
+        if let Some(ips) = map.get("customIps") {
+            addresses(ips, &names, true)?;
+        }
+    }
     Ok(())
 }
 
@@ -601,11 +625,24 @@ mod plugin_validation_tests {
     #[test]
     fn accepts_filters_and_resolved_shared_lists() {
         assert!(check_plugins(&json!({"ingressFilter":{"enabled":true,"blockedIps":["ext:office"]},"sharedLists":[{"name":"office","items":["192.0.2.0/24","2001:db8::/32"]}]})).is_ok());
+        assert!(check_plugins(&json!({"antiScanner":{"enabled":true,"sources":["https://example.com/anti.list"],"updateIntervalSecs":3600,"customIps":["198.51.100.0/24"]}})).is_ok());
         assert!(check_plugins(&json!({})).is_ok());
     }
     #[test]
     fn rejects_ignored_fields_invalid_masks_and_types() {
-        for cfg in [json!({"ip_filter":{}}),json!({"egressFilter":{"enabled":"true"}}),json!({"ingressFilter":{"blockedIps":["192.0.2.1/99"]}}),json!({"egressFilter":{"blockedPorts":[0]}}),json!({"torrentBlocker":{"blockDuration":-1}}),json!({"ingressFilter":{"blockedIps":["ext:missing"]}}),json!({"sharedLists":[{"name":"a","items":["ext:a"]}]})] {
+        for cfg in [
+            json!({"ip_filter":{}}),
+            json!({"egressFilter":{"enabled":"true"}}),
+            json!({"ingressFilter":{"blockedIps":["192.0.2.1/99"]}}),
+            json!({"egressFilter":{"blockedPorts":[0]}}),
+            json!({"torrentBlocker":{"blockDuration":-1}}),
+            json!({"ingressFilter":{"blockedIps":["ext:missing"]}}),
+            json!({"sharedLists":[{"name":"a","items":["ext:a"]}]}),
+            json!({"antiScanner":{"enabled":"true"}}),
+            json!({"antiScanner":{"updateIntervalSecs":60}}),
+            json!({"antiScanner":{"sources":["ftp://example.com"]}}),
+            json!({"antiScanner":{"customIps":["999.999.999.999"]}}),
+        ] {
             assert!(check_plugins(&cfg).is_err(), "accepted {cfg}");
         }
     }

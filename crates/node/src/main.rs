@@ -203,6 +203,8 @@ async fn main() {
         agent_token: None,
         torrent_block: None,
         selfsteal: selfsteal::Controller::default(),
+        antiscanner_last_sync: None,
+        antiscanner_enabled: false,
     };
 
     let mut sync_tick = tokio::time::interval(std::time::Duration::from_secs(settings.sync_interval));
@@ -277,6 +279,8 @@ struct NodeState {
     /// ноды: иначе владелец не смог бы выключить сбор, не заходя на
     /// каждый сервер.
     want_domains: bool,
+    antiscanner_last_sync: Option<std::time::Instant>,
+    antiscanner_enabled: bool,
 }
 
 /// Откуда агент берёт свою новую сборку.
@@ -355,6 +359,7 @@ async fn sync(
         plugins_status: Some({
             let mut st = plugins::probe();
             st.applied = state.plugins_applied.is_some();
+            st.antiscanner_enabled = state.antiscanner_enabled;
             let mut value = json!(st);
             value["selfsteal"] = json!(state.selfsteal.status);
             value
@@ -399,6 +404,34 @@ async fn sync(
     // Плагины применяем при каждом изменении, не дожидаясь смены
     // конфига движка: блокировку адреса ждать 15 минут нельзя.
     if let Some(cfg) = &sync.plugins {
+        if cfg.anti_scanner.enabled {
+            state.antiscanner_enabled = true;
+            let interval = std::time::Duration::from_secs(cfg.anti_scanner.update_interval_secs.max(300));
+            let needs_sync = match state.antiscanner_last_sync {
+                None => plugins::load_antiscanner_ips().is_empty(),
+                Some(last) => last.elapsed() >= interval,
+            };
+            if needs_sync {
+                let sources = if cfg.anti_scanner.sources.is_empty() {
+                    plugins::DEFAULT_ANTISCANNER_SOURCES.iter().map(|s| s.to_string()).collect()
+                } else {
+                    cfg.anti_scanner.sources.clone()
+                };
+                match plugins::sync_antiscanner_lists(http, &sources).await {
+                    Ok(count) => {
+                        state.antiscanner_last_sync = Some(std::time::Instant::now());
+                        tracing::info!(count, "списки антисканера обновлены");
+                        state.plugins_applied = None;
+                    }
+                    Err(e) => {
+                        tracing::warn!(error = %e, "не удалось обновить списки антисканера");
+                    }
+                }
+            }
+        } else {
+            state.antiscanner_enabled = false;
+        }
+
         let fingerprint = format!("{cfg:?}");
         // Ничего не включено — не трогаем nftables вовсе. Иначе на ноде
         // без него агент писал предупреждение каждые пятнадцать секунд

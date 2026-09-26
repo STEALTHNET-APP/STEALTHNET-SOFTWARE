@@ -837,8 +837,15 @@ function pluginsDrawer(n, onSaved){
 
       const c = d.config || {};
       const tb = c.torrentBlocker || {}, inf = c.ingressFilter || {}, eg = c.egressFilter || {};
+      const asc = c.antiScanner || {};
       const st = d.status;
       const lines = (a) => (a || []).join('\n');
+      const defaultAscSources = [
+        'https://raw.githubusercontent.com/shadow-netlab/traffic-guard-lists/refs/heads/main/public/government_networks.list',
+        'https://raw.githubusercontent.com/shadow-netlab/traffic-guard-lists/refs/heads/main/public/antiscanner.list',
+        'https://raw.githubusercontent.com/shadow-netlab/traffic-guard-lists/refs/heads/main/public/skipa.list',
+      ];
+      const ascSources = asc.sources && asc.sources.length ? asc.sources : defaultAscSources;
 
       layer.querySelector('#pgBody').innerHTML = `
         ${st && (!st.nft_available || !st.can_modify) ? `
@@ -849,7 +856,33 @@ function pluginsDrawer(n, onSaved){
             Настройки сохранятся, но работать начнут только после исправления.
           </div>` : ''}
 
-        <div class="form-section" style="margin-top:0"><h4>${I('magnet',13)} Блокировщик торрентов</h4>
+        <div class="form-section" style="margin-top:0"><h4>${I('shieldCheck',13)} Защита от сканеров и зондирования (Anti-Scanner)</h4>
+          <label class="check"><input type="checkbox" id="pgAsc" ${asc.enabled?'checked':''}>
+            <span>Блокировать сетевые сканеры и диапазоны надзорных органов (nftables)</span></label>
+          <div class="hint" style="margin-top:4px">
+            Сбрасывает входящие пакеты сканеров и ботов до передачи движку Xray. Списки автоматически кэшируются на сервере.
+          </div>
+          ${st && st.antiscanner_enabled ? `
+            <div style="margin-top:10px;padding:8px 12px;background:var(--bg-card);border:1px solid var(--border);border-radius:8px;font-size:12px;display:flex;gap:16px;flex-wrap:wrap">
+              <span>Активно подсетей: <b class="num">${(st.antiscanner_rules_count || 0).toLocaleString()}</b></span>
+              <span>Сброшено пакетов: <b class="num">${(st.antiscanner_dropped_packets || 0).toLocaleString()}</b></span>
+              <span>Сброшено трафика: <b class="num">${fmtBytes(st.antiscanner_dropped_bytes || 0)}</b></span>
+            </div>` : ''}
+          <div class="two-col" style="margin-top:10px">
+            <div class="field"><label>Источники списков (URL)</label>
+              <textarea class="inp mono" id="pgAscSources" rows="4" placeholder="https://...">${esc(lines(ascSources))}</textarea>
+              <div class="hint">Один URL в строке. Текстовые списки CIDR/IP с комментариями (#, ;).</div></div>
+            <div class="field"><label>Интервал обновления (секунд)</label>
+              <div class="inp-group"><input class="inp num" id="pgAscInt" type="number" min="300" max="604800"
+                value="${asc.updateIntervalSecs ?? 43200}"><span class="suffix">сек</span></div>
+              <div class="hint">По умолчанию 43200 (12 ч). Минимум 300 сек.</div>
+              <label style="margin-top:10px;display:block">Дополнительные подсети/IP (Custom)</label>
+              <textarea class="inp mono" id="pgAscCustom" rows="2" placeholder="198.51.100.0/24&#10;ext:мой-список">${esc(lines(asc.customIps))}</textarea>
+              <div class="hint">Добавляются в набор nftables вместе со сканерами.</div></div>
+          </div>
+        </div>
+
+        <div class="form-section"><h4>${I('magnet',13)} Блокировщик торрентов</h4>
           <label class="check"><input type="checkbox" id="pgTb" ${tb.enabled?'checked':''}>
             <span>Отрезать адрес при попытке торрент-трафика</span></label>
           <div class="two-col" style="margin-top:10px">
@@ -919,6 +952,12 @@ function pluginsDrawer(n, onSaved){
             enabled: layer.querySelector('#pgEg').checked,
             blockedIps: arr('#pgEgIps'),
             blockedPorts: arr('#pgEgPorts').map(Number).filter(Number.isFinite),
+          },
+          antiScanner: {
+            enabled: layer.querySelector('#pgAsc').checked,
+            sources: arr('#pgAscSources'),
+            updateIntervalSecs: parseInt(layer.querySelector('#pgAscInt').value, 10) || 43200,
+            customIps: arr('#pgAscCustom'),
           },
           sharedLists,
         };
@@ -1044,7 +1083,22 @@ registerPage({
   async bind(root){
     root.querySelectorAll('[data-config]').forEach(b=>b.onclick=()=>pluginsDrawer(DB.nodes.find(n=>n.id===b.dataset.config),()=>this.bind(root)));
     root.querySelectorAll('[data-blocks]').forEach(b=>b.onclick=()=>blocksDrawer(DB.nodes.find(n=>n.id===b.dataset.blocks)));
-    await Promise.all(DB.nodes.map(async n=>{const el=root.querySelector('[data-plugin-state="'+n.id+'"]');try{const d=await API.call('/api/nodes/'+n.id+'/plugins');const st=d.status;el.textContent=!st?'Агент ещё не отчитался':st.error?'Ошибка: '+st.error:!st.nft_available?'Установите nftables':!st.can_modify?'Нет прав NET_ADMIN':st.applied?'Правила применены':'Готов к настройке';}catch(e){el.textContent='Не удалось проверить: '+e.message;}}));
+    await Promise.all(DB.nodes.map(async n=>{
+      const el=root.querySelector('[data-plugin-state="'+n.id+'"]');
+      try {
+        const d=await API.call('/api/nodes/'+n.id+'/plugins');
+        const st=d.status;
+        if (!st) { el.textContent='Агент ещё не отчитался'; return; }
+        if (st.error) { el.textContent='Ошибка: '+st.error; return; }
+        if (!st.nft_available) { el.textContent='Установите nftables'; return; }
+        if (!st.can_modify) { el.textContent='Нет прав NET_ADMIN'; return; }
+        let txt = st.applied ? 'Правила применены' : 'Готов к настройке';
+        if (st.antiscanner_enabled) {
+          txt += ` · Антисканер (${(st.antiscanner_rules_count || 0).toLocaleString()} подсетей, ${(st.antiscanner_dropped_packets || 0).toLocaleString()} сброшено)`;
+        }
+        el.textContent = txt;
+      } catch(e){ el.textContent='Не удалось проверить: '+e.message; }
+    }));
   }
 });
 
