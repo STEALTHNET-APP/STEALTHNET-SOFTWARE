@@ -71,6 +71,33 @@ fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
     a.iter().zip(b).fold(0u8, |acc, (x, y)| acc | (x ^ y)) == 0
 }
 
+fn parse_minor_units(v: &serde_json::Value) -> Option<i64> {
+    if let Ok(minor) = super::hosted::amount_minor(v) {
+        return Some(minor);
+    }
+    let raw = match v {
+        serde_json::Value::String(s) => s.trim(),
+        _ => return None,
+    };
+    let (whole, fraction) = raw.split_once('.').unwrap_or((raw, ""));
+    let fraction_trimmed = fraction.trim_end_matches('0');
+    if fraction_trimmed.len() <= 2
+        && !whole.is_empty()
+        && whole.bytes().all(|b| b.is_ascii_digit())
+        && fraction.bytes().all(|b| b.is_ascii_digit())
+    {
+        let w = whole.parse::<i64>().ok()?;
+        let f = if fraction_trimmed.is_empty() {
+            0
+        } else {
+            fraction_trimmed.parse::<i64>().ok()? * if fraction_trimmed.len() == 1 { 10 } else { 1 }
+        };
+        w.checked_mul(100)?.checked_add(f)
+    } else {
+        None
+    }
+}
+
 #[async_trait]
 impl PaymentProvider for CryptoBot {
     fn accepts_http_webhooks(&self) -> bool { true }
@@ -183,11 +210,23 @@ impl PaymentProvider for CryptoBot {
             .as_str()
             .and_then(|s| s.parse::<i64>().ok());
 
-        let amount_minor = payload["paid_amount"]
-            .as_str()
-            .or_else(|| payload["amount"].as_str())
-            .and_then(|s| s.parse::<f64>().ok())
-            .map(|f| (f * 100.0).round() as i64);
+        let fiat = payload["fiat"].as_str().filter(|s| !s.trim().is_empty());
+        let is_fiat = payload["currency_type"].as_str() == Some("fiat") || fiat.is_some();
+
+        let raw_amount = if is_fiat {
+            &payload["amount"]
+        } else {
+            payload
+                .get("paid_amount")
+                .filter(|v| !v.is_null() && v.as_str() != Some(""))
+                .unwrap_or(&payload["amount"])
+        };
+
+        let amount_minor = parse_minor_units(raw_amount);
+
+        let currency = fiat
+            .or_else(|| payload["asset"].as_str().filter(|s| !s.trim().is_empty()))
+            .map(String::from);
 
         Ok(WebhookOutcome {
             external_event_id: v["update_id"].as_i64().map(|v| v.to_string()),
@@ -195,7 +234,7 @@ impl PaymentProvider for CryptoBot {
             provider_txid: payload["invoice_id"].as_i64().map(|v| v.to_string()),
             status,
             amount_minor,
-            currency: payload["fiat"].as_str().map(String::from),
+            currency,
             error: None,
             raw: v,
         })
@@ -275,5 +314,110 @@ mod tests {
         let mut h = HashMap::new();
         h.insert("crypto-pay-api-signature".to_string(), sig);
         assert!(cb.signature_valid(&h, body));
+    }
+
+    #[tokio::test]
+    async fn fiat_webhook_extracts_amount_and_fiat_currency() {
+        let token = "test-token";
+        let body = json!({
+            "update_id": 101,
+            "payload": {
+                "invoice_id": 999,
+                "status": "paid",
+                "currency_type": "fiat",
+                "fiat": "USD",
+                "amount": "19.99",
+                "paid_amount": "0.005123",
+                "paid_asset": "TON",
+                "payload": "42"
+            }
+        });
+        let bytes = serde_json::to_vec(&body).unwrap();
+        let secret = Sha256::digest(token.as_bytes());
+        let mut mac = HmacSha256::new_from_slice(&secret).unwrap();
+        mac.update(&bytes);
+        let sig = hex::encode(mac.finalize().into_bytes());
+
+        let cb = with_token(token);
+        let mut h = HashMap::new();
+        h.insert("crypto-pay-api-signature".to_string(), sig);
+
+        let outcome = cb.handle_webhook(&h, &bytes).await.unwrap();
+        assert_eq!(outcome.external_event_id.as_deref(), Some("101"));
+        assert_eq!(outcome.payment_id, Some(42));
+        assert_eq!(outcome.provider_txid.as_deref(), Some("999"));
+        assert_eq!(outcome.status, PaymentStatus::Success);
+        assert_eq!(outcome.amount_minor, Some(1999));
+        assert_eq!(outcome.currency.as_deref(), Some("USD"));
+    }
+
+    #[tokio::test]
+    async fn crypto_webhook_falls_back_to_asset_when_fiat_missing() {
+        let token = "test-token";
+        let body = json!({
+            "update_id": 102,
+            "payload": {
+                "invoice_id": 1000,
+                "status": "paid",
+                "currency_type": "crypto",
+                "asset": "USDT",
+                "fiat": null,
+                "amount": "15.00",
+                "paid_amount": "15.00",
+                "payload": "43"
+            }
+        });
+        let bytes = serde_json::to_vec(&body).unwrap();
+        let secret = Sha256::digest(token.as_bytes());
+        let mut mac = HmacSha256::new_from_slice(&secret).unwrap();
+        mac.update(&bytes);
+        let sig = hex::encode(mac.finalize().into_bytes());
+
+        let cb = with_token(token);
+        let mut h = HashMap::new();
+        h.insert("crypto-pay-api-signature".to_string(), sig);
+
+        let outcome = cb.handle_webhook(&h, &bytes).await.unwrap();
+        assert_eq!(outcome.external_event_id.as_deref(), Some("102"));
+        assert_eq!(outcome.payment_id, Some(43));
+        assert_eq!(outcome.provider_txid.as_deref(), Some("1000"));
+        assert_eq!(outcome.status, PaymentStatus::Success);
+        assert_eq!(outcome.amount_minor, Some(1500));
+        assert_eq!(outcome.currency.as_deref(), Some("USDT"));
+    }
+
+    #[tokio::test]
+    async fn crypto_webhook_handles_trailing_zeros_and_empty_fiat() {
+        let token = "test-token";
+        let body = json!({
+            "update_id": 103,
+            "payload": {
+                "invoice_id": 1001,
+                "status": "paid",
+                "currency_type": "crypto",
+                "asset": "TON",
+                "fiat": "",
+                "amount": "15.00",
+                "paid_amount": "15.000000",
+                "payload": "44"
+            }
+        });
+        let bytes = serde_json::to_vec(&body).unwrap();
+        let secret = Sha256::digest(token.as_bytes());
+        let mut mac = HmacSha256::new_from_slice(&secret).unwrap();
+        mac.update(&bytes);
+        let sig = hex::encode(mac.finalize().into_bytes());
+
+        let cb = with_token(token);
+        let mut h = HashMap::new();
+        h.insert("crypto-pay-api-signature".to_string(), sig);
+
+        let outcome = cb.handle_webhook(&h, &bytes).await.unwrap();
+        assert_eq!(outcome.external_event_id.as_deref(), Some("103"));
+        assert_eq!(outcome.payment_id, Some(44));
+        assert_eq!(outcome.provider_txid.as_deref(), Some("1001"));
+        assert_eq!(outcome.status, PaymentStatus::Success);
+        assert_eq!(outcome.amount_minor, Some(1500));
+        assert_eq!(outcome.currency.as_deref(), Some("TON"));
     }
 }

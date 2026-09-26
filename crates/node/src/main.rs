@@ -205,6 +205,12 @@ async fn main() {
         selfsteal: selfsteal::Controller::default(),
     };
 
+    if settings.engine_bin.contains("xray") {
+        if let Err(e) = engine_update::ensure_xray_assets(&http).await {
+            tracing::warn!(error = %e, "не удалось проверить geodata Xray при старте");
+        }
+    }
+
     let mut sync_tick = tokio::time::interval(std::time::Duration::from_secs(settings.sync_interval));
     let mut stats_tick = tokio::time::interval(std::time::Duration::from_secs(settings.stats_interval));
 
@@ -931,6 +937,17 @@ fn engine_alive(state: &mut NodeState) -> bool {
 async fn restart_engine(s: &Settings, state: &mut NodeState) -> Result<(), String> {
     if let Some(child) = state.engine.as_mut() {
         let _ = child.kill().await;
+    }
+
+    if s.engine_bin.contains("xray") {
+        let asset_dir = engine_update::xray_asset_dir();
+        if !asset_dir.join("geoip.dat").exists() || !asset_dir.join("geosite.dat").exists() {
+            let http = reqwest::Client::builder()
+                .timeout(std::time::Duration::from_secs(30))
+                .build()
+                .unwrap_or_default();
+            let _ = engine_update::ensure_xray_assets(&http).await;
+        }
     }
 
     let mut child = Command::new(&s.engine_bin)

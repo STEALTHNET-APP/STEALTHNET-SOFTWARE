@@ -469,7 +469,7 @@ async function drawShop(n) {
   }
   if (n !== generation) return;
   currency = shop.currency;
-  root.innerHTML = CT.html`<div class="page-heading"><h1>Тарифы</h1><button class="small-btn" id="paymentHistory">Платежи</button></div><p class="intro">После оплаты доступ включится автоматически.</p><div id="plans">${
+  root.innerHTML = CT.html`<div class="page-heading"><h1>Тарифы</h1><button class="small-btn" id="paymentHistory">Платежи</button></div><p class="intro">После подтверждения оплаты доступ включится.</p><div id="plans">${
     shop.tariffs
       .filter((t) => t.prices.some((p) => p.currency === currency))
       .map((t) => {
@@ -507,7 +507,7 @@ function buySheet(id, selectedPeriod) {
     const methods = paymentOptions(shop, t, period, currency);
     const box = dialog.querySelector("#payActions");
     if (!box) return;
-    box.innerHTML = CT.html`<p class="checkout-total">К оплате <strong>${money(quote?.amount_minor ?? price.amount_minor, currency)}</strong></p>${quote && quote.days !== period ? CT.html`<p>Срок с бонусом: ${quote.days} дн.</p>` : ""}${price.amount_minor === 0 ? CT.html('<button class="btn" data-pay="free">Получить бесплатно</button>') : methods.length ? methods.map((m) => `<button class="btn ${m.currency !== currency ? "line" : ""}" data-pay="${esc(m.id)}" ${methodQuotes[m.currency]?.error ? "disabled" : ""}>${m.currency === "XTR" ? CT.html("Оплатить ") + money(methodQuotes.XTR?.amount_minor ?? m.amount_minor, "XTR") : CT.html("Оплатить · ") + esc(m.title)}</button>${methodQuotes[m.currency]?.error ? `<p class="note">${esc(methodQuotes[m.currency].error)}</p>` : ""}`).join("") : CT.html('<div class="warn-box">Оплата временно недоступна. Напишите в поддержку — вам помогут с подключением.</div>')}`;
+    box.innerHTML = CT.html`<p class="checkout-total">К оплате <strong>${money(quote?.amount_minor ?? price.amount_minor, currency)}</strong></p>${quote && quote.days !== period ? CT.html`<p>Срок с бонусом: ${quote.days} дн.</p>` : ""}${price.amount_minor === 0 ? CT.html('<button class="btn" data-pay="free">Получить бесплатно</button>') : methods.length ? methods.map((m) => `<button class="btn ${m.currency !== currency ? "line" : ""}" data-pay="${esc(m.id)}" ${methodQuotes[m.currency]?.error ? "disabled" : ""}>${m.currency === "XTR" ? CT.html("Оплатить ") + money(methodQuotes.XTR?.amount_minor ?? m.amount_minor, "XTR") : CT.html(m.id === "manual" ? "Оформить счёт · " : "Оплатить · ") + esc(m.title)}</button>${methodQuotes[m.currency]?.error ? `<p class="note">${esc(methodQuotes[m.currency].error)}</p>` : ""}`).join("") : CT.html('<div class="warn-box">Оплата временно недоступна. Напишите в поддержку — вам помогут с подключением.</div>')}`;
     box
       .querySelectorAll("[data-pay]")
       .forEach((b) => (b.onclick = () => pay(b.dataset.pay)));
@@ -607,8 +607,9 @@ function buySheet(id, selectedPeriod) {
       pendingPayment = invoice.payment_id;
       dialog.querySelector("#payActions").innerHTML =
         CT.html`<p>Счёт №${invoice.payment_id} · ${money(invoice.amount_minor, invoice.currency || paymentCurrency)}</p>${invoice.instructions ? `<p class="instruction-text">${esc(invoice.instructions)}</p>` : ""}${safeURL(invoice.url) ? CT.html('<button class="btn" id="openInvoice">Открыть оплату</button>') : ""}<button class="btn line" id="checkInvoice">Проверить оплату</button>`;
-      dialog.querySelector("#payError").textContent =
-        CT.html("После оплаты вернитесь сюда и нажмите «Проверить оплату».");
+      dialog.querySelector("#payError").textContent = provider === "manual"
+        ? CT.html("Сообщите номер счёта в поддержку. После подтверждения оплаты нажмите «Проверить оплату».")
+        : CT.html("После оплаты вернитесь сюда и нажмите «Проверить оплату».");
       dialog
         .querySelector("#openInvoice")
         ?.addEventListener("click", () => openInvoice(invoice));

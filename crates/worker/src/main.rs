@@ -88,6 +88,10 @@ async fn main() -> Result<()> {
             tracing::warn!(error = %e, "не почистил отчёты");
             let _=sn_core::alerts::incident(&pool,"job:prune_reports","Очистка отчётов",Some("Фоновая задача завершилась с ошибкой. Подробности в журнале сервиса.")).await;
         } else { let _=sn_core::alerts::incident(&pool,"job:prune_reports","Очистка отчётов",None).await; }
+        if let Err(e) = prune_auth_limits(&pool).await {
+            tracing::warn!(error = %e, "не почистил лимиты авторизации");
+            let _=sn_core::alerts::incident(&pool,"job:prune_auth_limits","Очистка лимитов авторизации",Some("Фоновая задача завершилась с ошибкой. Подробности в журнале сервиса.")).await;
+        } else { let _=sn_core::alerts::incident(&pool,"job:prune_auth_limits","Очистка лимитов авторизации",None).await; }
         if let Err(e) = ensure_partitions(&pool).await {
             tracing::error!(error = %e, "обслуживание партиций");
             let _=sn_core::alerts::incident(&pool,"job:ensure_partitions","Обслуживание базы",Some("Фоновая задача завершилась с ошибкой. Подробности в журнале сервиса.")).await;
@@ -186,6 +190,33 @@ async fn prune_reports(pool: &Pool) -> Result<()> {
             domains = b.rows_affected(),
             days,
             "старые отчёты удалены"
+        );
+    }
+    Ok(())
+}
+
+/// Удаляет устаревшие временные окна рейт-лимитинга авторизации.
+///
+/// Очистка вынесена из горячих путей `consume()` и `throttle()`, чтобы исключить
+/// лишние `DELETE` и блокировки строк при каждом запросе входа или кабинета.
+async fn prune_auth_limits(pool: &Pool) -> Result<()> {
+    let now = Utc::now().timestamp();
+    // Ограничения для входа в панель администратора: окна до 5 минут, храним 1 час.
+    let a = sqlx::query("DELETE FROM admin_auth_limits WHERE window_start < $1")
+        .bind(now - 3600)
+        .execute(pool)
+        .await?;
+    // Ограничения для кабинета клиента: окна до 1 часа, храним 2 суток.
+    let c = sqlx::query("DELETE FROM cabinet_auth_limits WHERE window_start < $1")
+        .bind(now - 172800)
+        .execute(pool)
+        .await?;
+
+    if a.rows_affected() + c.rows_affected() > 0 {
+        tracing::info!(
+            admin = a.rows_affected(),
+            cabinet = c.rows_affected(),
+            "устаревшие лимиты авторизации удалены"
         );
     }
     Ok(())

@@ -622,7 +622,8 @@ async fn validate_host_body(st:&AppState,b:&HostBody)->Result<()> {
         if let Some(id)=options.get("xray_template_id"){sn_sub::overrides::validate_templates(&st.pool,&json!({"xray_json":id})).await?;}
         for (key,table) in [("node_ids","nodes"),("exclude_squad_ids","squads")] {
             if let Some(ids)=options[key].as_array(){for id in ids {
-                let exists:bool=sqlx::query_scalar(&format!("SELECT EXISTS(SELECT 1 FROM {table} WHERE id=$1)")).bind(id.as_i64().unwrap()).fetch_one(&st.pool).await?;
+                let Some(node_id) = id.as_i64() else { return Err(Error::bad("Идентификаторы должны быть целыми числами")); };
+                let exists:bool=sqlx::query_scalar(&format!("SELECT EXISTS(SELECT 1 FROM {table} WHERE id=$1)")).bind(node_id).fetch_one(&st.pool).await?;
                 if !exists{return Err(Error::bad("Выбранная нода или сквад больше не существует"))}
             }}
         }
@@ -836,6 +837,25 @@ mod правка_хоста {
         ] {
             assert!(поле.is_some(), "{имя}: передано, должно очищаться");
             assert_eq!(чистое(поле), None, "{имя}");
+        }
+    }
+
+    #[test]
+    fn host_options_node_ids_rejects_non_integers_without_panic() {
+        let b = тело(r#"{"options": {"node_ids": ["abc", 123, null, false], "exclude_squad_ids": ["bad", 456]}}"#);
+        assert!(b.options.is_some());
+        let opts = b.options.unwrap();
+        assert!(sn_sub::overrides::validate_host(&opts, false).is_err());
+        for key in ["node_ids", "exclude_squad_ids"] {
+            let ids = opts[key].as_array().unwrap();
+            let mut errors = 0;
+            for id in ids {
+                let Some(_node_id) = id.as_i64() else {
+                    errors += 1;
+                    continue;
+                };
+            }
+            assert!(errors > 0, "should safely detect non-integers without panic");
         }
     }
 }

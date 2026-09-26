@@ -118,8 +118,6 @@ async fn throttle(st:&AppState,h:&HeaderMap,install:uuid::Uuid,action:&str,max:i
     let key=hex::encode(token_hash(&format!("{install}:{ip}:{action}")));
     let window=chrono::Utc::now().timestamp()/seconds*seconds;
     let count:i32=sqlx::query_scalar("INSERT INTO cabinet_auth_limits(bucket,window_start,hits) VALUES($1,$2,1) ON CONFLICT(bucket,window_start) DO UPDATE SET hits=cabinet_auth_limits.hits+1 RETURNING hits").bind(key).bind(window).fetch_one(&st.pool).await?;
-    // All windows are bounded to <= 1 hour. Keep two days, not an unbounded log.
-    sqlx::query("DELETE FROM cabinet_auth_limits WHERE window_start<$1").bind(chrono::Utc::now().timestamp()-172800).execute(&st.pool).await?;
     if count>max{return Err(Error::TooManyRequests);}Ok(())
 }
 fn csrf(token:&str)->String{hex::encode(token_hash(&format!("cabinet-csrf:{token}")))}

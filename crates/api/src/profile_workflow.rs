@@ -389,7 +389,7 @@ async fn trial_get(
 ) -> Result<Json<Value>> {
     let trial:Option<Value>=sqlx::query_scalar("SELECT to_jsonb(t)||jsonb_build_object('config',p.config,'current_version',p.version) FROM profile_trials t JOIN config_profiles p ON p.id=t.candidate_id WHERE t.profile_id=$1 AND t.state='testing'").bind(id).fetch_optional(&st.pool).await?;
     if let Some(mut t) = trial {
-        let c = t["candidate_id"].as_i64().unwrap();
+        let c = t["candidate_id"].as_i64().ok_or_else(|| Error::Internal("candidate_id missing".into()))?;
         t["nodes"] = json!(node_status(&st, c).await?);
         Ok(Json(t))
     } else {

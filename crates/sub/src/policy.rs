@@ -99,7 +99,11 @@ pub fn validate_template(code:&str,body:&str)->Result<(),String>{
     let v=parse_template(code,body)?;
     if !v.is_object()&&!v.is_array()&&v!="__SN_SERVERS__"{return Err("Шаблон должен быть объектом конфигурации или {{SERVERS}}".into())}
     if v.is_array()&&!body.contains("{{SERVERS}}") {return Err("Базовый шаблон должен быть объектом конфигурации".into())}
-    if v.get("remnawave").is_some(){return Err("Директивы remnawave требуют адаптации. Используйте обычный конфиг или пресет STEALTHNET".into())}
+    if let Some(rw) = v.get("remnawave") {
+        if !rw.is_object() && !rw.is_null() {
+            return Err("Директива remnawave должна быть объектом настроек".into());
+        }
+    }
     Ok(())
 }
 fn deep_merge(target:&mut Value,source:&Value){
@@ -121,10 +125,47 @@ pub fn render_template(code:&str,body:&str,hosts:&[HostEntry],title:&str)->Resul
     let mut v=parse_template(code,body)?;
     let names=json!(hosts.iter().map(|h|&h.remark).collect::<Vec<_>>());
     if code=="xray_json"{
+        let has_remnawave = v.get("remnawave").is_some();
         let generated=formats::render_xray_json(hosts,title);
         if body.contains("{{SERVERS}}")||body.contains("{{OUTBOUNDS}}"){
             let outs=json!(hosts.iter().enumerate().map(|(i,h)|{let mut o=h.to_xray_outbound();o["tag"]=json!(format!("proxy-{i}"));o}).collect::<Vec<_>>());
             expand(&mut v,&generated,&outs,&names,title);
+        }else if has_remnawave {
+            let rw = v.as_object_mut().and_then(|o| o.remove("remnawave")).unwrap_or_default();
+            let mut outs = v["outbounds"].as_array().cloned().unwrap_or_default();
+            let mut injected = Vec::new();
+            if let Some(inject_list) = rw.get("injectHosts").and_then(|h| h.as_array()) {
+                for item in inject_list {
+                    let prefix = item.get("tagPrefix").and_then(|p| p.as_str()).unwrap_or("proxy");
+                    let regex = item.get("selector")
+                        .and_then(|s| s.get("pattern"))
+                        .and_then(|p| p.as_str())
+                        .and_then(|pat| regex::Regex::new(pat).ok());
+                    for (i, h) in hosts.iter().enumerate() {
+                        if let Some(ref re) = regex {
+                            if !re.is_match(&h.remark) { continue; }
+                        }
+                        let mut o = h.to_xray_outbound();
+                        o["tag"] = json!(format!("{prefix}-{i}"));
+                        injected.push(o);
+                    }
+                }
+            } else {
+                for (i, h) in hosts.iter().enumerate() {
+                    let mut o = h.to_xray_outbound();
+                    o["tag"] = json!(format!("proxy-{i}"));
+                    injected.push(o);
+                }
+            }
+            for (idx, o) in injected.into_iter().enumerate() {
+                outs.insert(idx, o);
+            }
+            v["outbounds"] = json!(outs);
+            if v.get("remarks").is_none() {
+                v["remarks"] = json!(title);
+            }
+            expand(&mut v, &Value::Null, &Value::Null, &names, title);
+            v = json!([v]);
         }else{
             let balanced=v["stealthnet"]["mode"]=="balanced";
             if let Some(o)=v.as_object_mut(){o.remove("stealthnet");}
@@ -146,16 +187,112 @@ pub fn render_template(code:&str,body:&str,hosts:&[HostEntry],title:&str)->Resul
     }
     if code=="singbox"{
         let generated=formats::render_singbox(hosts,title);let outs=generated["outbounds"].clone();
-        let dynamic=json!(outs.as_array().unwrap().iter().filter(|o|o.get("server").is_some()).collect::<Vec<_>>());
+        let dynamic=json!(outs.as_array().map(|a|a.iter().filter(|o|o.get("server").is_some()).collect::<Vec<_>>()).unwrap_or_default());
         if body.contains("{{SERVERS}}")||body.contains("{{OUTBOUNDS}}"){expand(&mut v,&dynamic,&outs,&names,title)}else{
             let template=v;v=generated;deep_merge(&mut v,&template);
             let mut merged=outs.as_array().cloned().unwrap_or_default();
-            for o in template["outbounds"].as_array().into_iter().flatten(){merged.retain(|x|x["tag"]!=o["tag"]);merged.push(o.clone());}v["outbounds"]=json!(merged);expand(&mut v,&dynamic,&outs,&names,title);
+            for o in template["outbounds"].as_array().into_iter().flatten(){merged.retain(|x|x["tag"]!=o["tag"]);merged.push(o.clone());}
+            v["outbounds"]=json!(merged);
+            expand(&mut v,&dynamic,&outs,&names,title);
+        }
+        if let Some(o) = v.as_object_mut() {
+            o.remove("remnawave");
+        }
+        if let Some(out_arr) = v.get_mut("outbounds").and_then(|o| o.as_array_mut()) {
+            for out in out_arr {
+                if let Some(rw) = out.as_object_mut().and_then(|m| m.remove("remnawave")) {
+                    let inc = rw.get("include-proxies")
+                        .or_else(|| rw.get("include_proxies"))
+                        .and_then(|b| b.as_bool())
+                        .unwrap_or(true);
+                    if inc {
+                        if let Some(obj) = out.as_object_mut() {
+                            let existing = obj.entry("outbounds").or_insert_with(|| Value::Array(Vec::new()));
+                            if let Some(arr) = existing.as_array_mut() {
+                                for tag in hosts.iter().map(|h| &h.remark) {
+                                    let tag_val = json!(tag);
+                                    if !arr.contains(&tag_val) {
+                                        arr.push(tag_val);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
         }
         return serde_json::to_string_pretty(&v).map_err(|e|e.to_string())
     }
     let generated:Value=serde_yaml_ng::from_str(&formats::render_clash(hosts,title)).map_err(|e|format!("Генератор YAML: {e}"))?;
-    if body.contains("{{SERVERS}}") {expand(&mut v,&generated["proxies"],&Value::Null,&names,title)}else{let template=v;v=generated.clone();deep_merge(&mut v,&template);v["proxies"]=generated["proxies"].clone();expand(&mut v,&generated["proxies"],&Value::Null,&names,title);}
+    if body.contains("{{SERVERS}}") {
+        expand(&mut v,&generated["proxies"],&Value::Null,&names,title);
+    } else {
+        let template=v;
+        v=generated.clone();
+        deep_merge(&mut v,&template);
+        let mut final_proxies = template.get("proxies")
+            .and_then(|p| p.as_array())
+            .cloned()
+            .unwrap_or_default();
+        if let Some(gen_arr) = generated["proxies"].as_array() {
+            for p in gen_arr {
+                let name = p.get("name").and_then(|n| n.as_str());
+                if !final_proxies.iter().any(|existing| existing.get("name").and_then(|n| n.as_str()) == name) {
+                    final_proxies.push(p.clone());
+                }
+            }
+        }
+        v["proxies"] = Value::Array(final_proxies);
+        expand(&mut v,&generated["proxies"],&Value::Null,&names,title);
+    }
+
+    if let Some(groups) = v.get_mut("proxy-groups").and_then(|g| g.as_array_mut()) {
+        for group in groups {
+            if let Some(rw) = group.as_object_mut().and_then(|g| g.remove("remnawave")) {
+                let inc = rw.get("include-proxies")
+                    .or_else(|| rw.get("include_proxies"))
+                    .and_then(|b| b.as_bool())
+                    .unwrap_or(true);
+                if inc {
+                    let mut proxy_names: Vec<String> = hosts.iter().map(|h| h.remark.clone()).collect();
+                    let shuffle = rw.get("shuffle-proxies-order")
+                        .or_else(|| rw.get("shuffle_proxies_order"))
+                        .and_then(|b| b.as_bool())
+                        .unwrap_or(false);
+                    if shuffle {
+                        use rand::seq::SliceRandom;
+                        let mut rng = rand::thread_rng();
+                        proxy_names.shuffle(&mut rng);
+                    }
+                    let select_random = rw.get("select-random-proxy")
+                        .or_else(|| rw.get("select_random_proxy"))
+                        .and_then(|b| b.as_bool())
+                        .unwrap_or(false);
+                    if select_random {
+                        use rand::seq::SliceRandom;
+                        let mut rng = rand::thread_rng();
+                        if let Some(picked) = proxy_names.choose(&mut rng).cloned() {
+                            proxy_names = vec![picked];
+                        }
+                    }
+                    if let Some(obj) = group.as_object_mut() {
+                        let existing = obj.entry("proxies").or_insert_with(|| Value::Array(Vec::new()));
+                        if let Some(arr) = existing.as_array_mut() {
+                            for name in proxy_names {
+                                let nval = json!(name);
+                                if !arr.contains(&nval) {
+                                    arr.push(nval);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    if let Some(o) = v.as_object_mut() {
+        o.remove("remnawave");
+    }
     serde_yaml_ng::to_string(&v).map_err(|e|e.to_string())
 }
 pub fn format_template(code:&str,body:&str)->Result<String,String>{
@@ -190,7 +327,48 @@ mod tests{
     #[test]fn title_is_structurally_escaped(){let out=render_template("xray_json",r#"{"title":"{{TITLE}}","list":{{SERVERS}}}"#,&hosts(),"A\"\nB").unwrap();let v:Value=serde_json::from_str(&out).unwrap();assert_eq!(v["title"],"A\"\nB");assert_eq!(v["list"].as_array().unwrap().len(),2);}
     #[test]fn yaml_templates_apply_for_every_family(){for code in ["clash","mihomo","stash"]{let out=render_template(code,"mixed-port: 8888\nproxies: {{SERVERS}}\nproxy-groups:\n  - name: Select\n    type: select\n    proxies: {{PROXY_NAMES}}\nrules:\n  - MATCH,Select\n",&hosts(),"title").unwrap();let v:Value=serde_yaml_ng::from_str(&out).unwrap();assert_eq!(v["mixed-port"],8888);assert_eq!(v["proxies"].as_array().unwrap().len(),2);assert_eq!(v["proxy-groups"][0]["proxies"].as_array().unwrap().len(),2);}}
     #[test]fn singbox_applies_dns_and_retains_servers(){let out=render_template("singbox",r#"{"log":{"level":"debug"},"dns":{"servers":[{"type":"udp","server":"9.9.9.9"}]}}"#,&hosts(),"title").unwrap();let v:Value=serde_json::from_str(&out).unwrap();assert_eq!(v["log"]["level"],"debug");assert_eq!(v["outbounds"].as_array().unwrap().iter().filter(|o|o["server"].is_string()).count(),2);}
+    #[test]fn singbox_handles_missing_outbounds_without_panic(){let out=render_template("singbox",r#"{"log":{"level":"debug"}}"#,&hosts(),"title").unwrap();let v:Value=serde_json::from_str(&out).unwrap();assert_eq!(v["log"]["level"],"debug");}
     #[test]fn balanced_xray_has_unique_real_outbounds(){let out=render_template("xray_json",r#"{"stealthnet":{"mode":"balanced"},"routing":{"balancers":[{"tag":"auto","selector":["proxy-"]}]}}"#,&hosts(),"Auto").unwrap();let v:Value=serde_json::from_str(&out).unwrap();assert_eq!(v.as_array().unwrap().len(),1);assert_eq!(v[0]["remarks"],"Auto");assert_eq!(v[0]["outbounds"][0]["tag"],"proxy-0");assert_eq!(v[0]["outbounds"][1]["tag"],"proxy-1");assert!(v[0].get("stealthnet").is_none());}
     #[test]fn text_templates_are_encoded_once(){let b="{{TITLE}}\n{{SERVERS}}";let out=render_template("base64",b,&hosts(),"T").unwrap();let plain=String::from_utf8(STANDARD.decode(out).unwrap()).unwrap();assert!(plain.starts_with("T\nvless://"));assert_eq!(plain.lines().count(),3);}
     #[test]fn routing_and_settings_reject_invalid_data(){assert!(validate_routing("happ://routing/onadd/!!!!").is_err());let l=format!("happ://routing/onadd/{}",STANDARD.encode(r#"{"Name":"Мой VPN","DirectSites":["example.com"]}"#));assert!(validate_routing(&l).is_ok());assert!(validate_routing("happ://routing/off").is_ok());assert!(validate_settings(json!({"subscription.remark_expired":["Окончено","Продлите доступ"]}).as_object().unwrap()).is_ok());assert!(validate_settings(json!({"subscription.remark_expired":[false]}).as_object().unwrap()).is_err());}
+    #[test]fn remnawave_inject_hosts_xray_json(){
+        let template=r#"{"remnawave":{"injectHosts":[{"tagPrefix":"proxy"}]},"routing":{"balancers":[{"tag":"auto","selector":["proxy"]}]},"outbounds":[{"protocol":"freedom","tag":"direct"}]}"#;
+        assert!(validate_template("xray_json",template).is_ok());
+        let out=render_template("xray_json",template,&hosts(),"Title").unwrap();
+        let v:Value=serde_json::from_str(&out).unwrap();
+        assert_eq!(v.as_array().unwrap().len(),1);
+        let cfg=&v[0];
+        assert!(cfg.get("remnawave").is_none());
+        assert_eq!(cfg["remarks"],"Title");
+        assert_eq!(cfg["outbounds"][0]["tag"],"proxy-0");
+        assert_eq!(cfg["outbounds"][1]["tag"],"proxy-1");
+        assert_eq!(cfg["outbounds"][2]["tag"],"direct");
+    }
+    #[test]fn remnawave_include_proxies_mihomo_yaml(){
+        let template="mixed-port: 7890\nproxies:\n  - name: DIRECT\n    type: direct\nproxy-groups:\n  - name: Proxy\n    type: select\n    remnawave: { include-proxies: true }\n    proxies: [DIRECT]\nrules:\n  - MATCH,Proxy\n";
+        assert!(validate_template("mihomo",template).is_ok());
+        let out=render_template("mihomo",template,&hosts(),"Title").unwrap();
+        let v:Value=serde_yaml_ng::from_str(&out).unwrap();
+        assert!(v.get("remnawave").is_none());
+        let proxies=v["proxies"].as_array().unwrap();
+        assert!(proxies.iter().any(|p|p["name"]=="DIRECT"));
+        assert!(proxies.iter().any(|p|p["name"]=="Нидерланды"));
+        let group=&v["proxy-groups"][0];
+        assert!(group.get("remnawave").is_none());
+        let group_proxies=group["proxies"].as_array().unwrap();
+        assert!(group_proxies.iter().any(|p|p=="DIRECT"));
+        assert!(group_proxies.iter().any(|p|p=="Нидерланды"));
+    }
+    #[test]fn remnawave_singbox_include_proxies(){
+        let template=r#"{"outbounds":[{"type":"selector","tag":"select","outbounds":["direct"],"remnawave":{"include-proxies":true}}]}"#;
+        assert!(validate_template("singbox",template).is_ok());
+        let out=render_template("singbox",template,&hosts(),"Title").unwrap();
+        let v:Value=serde_json::from_str(&out).unwrap();
+        assert!(v.get("remnawave").is_none());
+        let group=&v["outbounds"].as_array().unwrap().iter().find(|o|o["tag"]=="select").unwrap();
+        assert!(group.get("remnawave").is_none());
+        let tags=group["outbounds"].as_array().unwrap();
+        assert!(tags.iter().any(|t|t=="direct"));
+        assert!(tags.iter().any(|t|t=="Нидерланды"));
+    }
 }

@@ -1,9 +1,8 @@
-/* Тема оформления: светлая по умолчанию, тёмная по выбору.
+/* Тема оформления: системная по умолчанию (светлая/тёмная), с возможностью ручного переключения.
  *
  * Файл подключается первым и до отрисовки: если выставлять атрибут
  * позже, человек с тёмной темой успевает увидеть вспышку белого экрана.
- * Пока выбор не сделан, атрибута нет вовсе — тогда решает настройка
- * системы через prefers-color-scheme в таблице стилей.
+ * Пока выбор не сделан вручную, решает настройка системы через prefers-color-scheme.
  */
 'use strict';
 
@@ -13,18 +12,23 @@ function storedTheme(){
   try { return localStorage.getItem(THEME_KEY); } catch (_) { return null; }
 }
 
-function applyTheme(t){
-  const root = document.documentElement;
-  root.setAttribute('data-theme', t === 'dark' ? 'dark' : 'light');
-  // Системные части окна — полосы прокрутки, поле ввода браузера —
-  // красятся по этому свойству. Без него светлая панель получает
-  // тёмную полосу прокрутки, и это сразу заметно.
-  root.style.colorScheme = isDark() ? 'dark' : 'light';
+function prefersDark(){
+  try { return window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches; } catch (_) { return false; }
 }
 
-/* По умолчанию светлая: панель для работы днём, и тёмная — выбор, а не
-   догадка по настройке операционной системы. */
-function isDark(){ return storedTheme() === 'dark'; }
+function isDark(){
+  const s = storedTheme();
+  if (s === 'dark') return true;
+  if (s === 'light') return false;
+  return prefersDark();
+}
+
+function applyTheme(t){
+  const root = document.documentElement;
+  const dark = t === 'dark' || (t !== 'light' && prefersDark());
+  root.setAttribute('data-theme', dark ? 'dark' : 'light');
+  root.style.colorScheme = dark ? 'dark' : 'light';
+}
 
 function setTheme(t){
   try { localStorage.setItem(THEME_KEY, t); } catch (_) {}
@@ -36,3 +40,15 @@ function setTheme(t){
 function toggleTheme(){ setTheme(isDark() ? 'light' : 'dark'); }
 
 applyTheme(storedTheme());
+
+try {
+  if (window.matchMedia) {
+    window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
+      if (!storedTheme()) {
+        applyTheme(null);
+        if (typeof route === 'function') route();
+      }
+    });
+  }
+} catch (_) {}
+

@@ -50,9 +50,6 @@ async fn consume(st: &AppState, identity: &str, limit: i32, seconds: i64) -> Res
     .bind(now / seconds * seconds)
     .fetch_one(&st.pool)
     .await?;
-    // Indexed expiry keeps anonymous attempts from growing into an indefinite log.
-    sqlx::query("DELETE FROM admin_auth_limits WHERE window_start<$1")
-        .bind(now - 3600).execute(&st.pool).await?;
     if count > limit { return Err(Error::TooManyRequests); }
     Ok(())
 }

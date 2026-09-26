@@ -21,6 +21,6 @@ doctor:
 test-release:
 	@python3 devtools/release_version.py --check
 	@python3 -m unittest discover -s devtools/tests -p 'test_*.py' -v
-	@node --test devtools/tests/profile-form.test.cjs
+	@node --test devtools/tests/profile-form.test.cjs devtools/tests/help-parity.test.cjs
 	@python3 -m unittest discover -s deploy/tests -v
 	@bash -n install.sh update.sh deploy/migrate.sh

@@ -75,7 +75,7 @@ pub async fn install(bin: &str, config: &Path, target: &str) -> Result<String, S
         let bytes=tokio::fs::read(&zip).await.map_err(|e|e.to_string())?;
         let digest=tokio::fs::read_to_string(tmp.join("x.dgst")).await.map_err(|e|e.to_string())?;
         verify_digest(&bytes,&digest)?;
-        let out=Command::new("unzip").arg("-oq").arg(&zip).arg("xray").arg("-d").arg(&tmp).output().await.map_err(|e|e.to_string())?;
+        let out=Command::new("unzip").arg("-oq").arg(&zip).arg("-d").arg(&tmp).output().await.map_err(|e|e.to_string())?;
         if !out.status.success(){return Err("архив Xray не распаковался".into());}
         let fresh=tmp.join("xray");
         if !is_elf(&fresh).await {return Err("в архиве отсутствует бинарник Xray".into());}
@@ -88,6 +88,15 @@ pub async fn install(bin: &str, config: &Path, target: &str) -> Result<String, S
             if !test.status.success(){return Err("новая версия отвергла текущий конфиг; рабочая версия сохранена. Проверьте профиль и совместимость релиза".into());}
         }
         atomic_replace(&fresh,Path::new(bin)).await?;
+        let asset_dir = xray_asset_dir();
+        if tmp.join("geoip.dat").exists() {
+            let _ = tokio::fs::create_dir_all(&asset_dir).await;
+            let _ = atomic_replace(&tmp.join("geoip.dat"), &asset_dir.join("geoip.dat")).await;
+        }
+        if tmp.join("geosite.dat").exists() {
+            let _ = tokio::fs::create_dir_all(&asset_dir).await;
+            let _ = atomic_replace(&tmp.join("geosite.dat"), &asset_dir.join("geosite.dat")).await;
+        }
         Ok(installed)
     }.await;
     let _ = tokio::fs::remove_dir_all(&tmp).await;
@@ -122,16 +131,109 @@ async fn atomic_replace(fresh: &Path, bin: &Path) -> Result<(), String> {
         .await
         .map_err(|e| e.to_string())?;
     // Backup is copied to a new inode too: an earlier executable may still be running.
-    let backup = bin.with_extension("previous.new");
-    tokio::fs::copy(bin, &backup)
-        .await
-        .map_err(|e| e.to_string())?;
-    tokio::fs::rename(backup, bin.with_extension("previous"))
-        .await
-        .map_err(|e| e.to_string())?;
+    if bin.exists() {
+        let backup = bin.with_extension("previous.new");
+        if tokio::fs::copy(bin, &backup).await.is_ok() {
+            let _ = tokio::fs::rename(backup, bin.with_extension("previous")).await;
+        }
+    }
     tokio::fs::rename(staged, bin)
         .await
-        .map_err(|e| format!("не заменил Xray: {e}"))
+        .map_err(|e| format!("не заменил {}: {e}", bin.display()))
+}
+
+/// Определение каталога geodata Xray (через XRAY_LOCATION_ASSET или /usr/local/share/xray)
+pub fn xray_asset_dir() -> std::path::PathBuf {
+    if let Ok(p) = std::env::var("XRAY_LOCATION_ASSET") {
+        let trimmed = p.trim();
+        if !trimmed.is_empty() {
+            return std::path::PathBuf::from(trimmed);
+        }
+    }
+    std::path::PathBuf::from("/usr/local/share/xray")
+}
+
+/// Предстартовая проверка и автозагрузка отсутствующих баз geoip.dat и geosite.dat для Xray
+pub async fn ensure_xray_assets(client: &reqwest::Client) -> Result<(), String> {
+    let asset_dir = xray_asset_dir();
+    let geoip = asset_dir.join("geoip.dat");
+    let geosite = asset_dir.join("geosite.dat");
+
+    if geoip.exists() && geosite.exists() {
+        return Ok(());
+    }
+
+    if let Err(e) = tokio::fs::create_dir_all(&asset_dir).await {
+        tracing::warn!(dir = %asset_dir.display(), error = %e, "не удалось создать каталог geodata Xray");
+        return Err(format!("создание каталога geodata: {e}"));
+    }
+
+    if !geoip.exists() {
+        tracing::info!(path = %geoip.display(), "geoip.dat отсутствует — скачиваем актуальную базу...");
+        let sources = [
+            "https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/geoip.dat",
+            "https://github.com/v2fly/geoip/releases/latest/download/geoip.dat",
+        ];
+        download_asset(client, &sources, &geoip).await?;
+        tracing::info!(path = %geoip.display(), "geoip.dat успешно загружен");
+    }
+
+    if !geosite.exists() {
+        tracing::info!(path = %geosite.display(), "geosite.dat отсутствует — скачиваем актуальную базу...");
+        let sources = [
+            "https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/geosite.dat",
+            "https://github.com/v2fly/domain-list-community/releases/latest/download/dlc.dat",
+        ];
+        download_asset(client, &sources, &geosite).await?;
+        tracing::info!(path = %geosite.display(), "geosite.dat успешно загружен");
+    }
+
+    Ok(())
+}
+
+async fn download_asset(client: &reqwest::Client, sources: &[&str], dest: &Path) -> Result<(), String> {
+    let tmp = dest.with_extension(format!("tmp.{}", sn_core::auth::generate_token()));
+    let mut downloaded = false;
+
+    for url in sources {
+        match client.get(*url).send().await {
+            Ok(resp) if resp.status().is_success() => {
+                match resp.bytes().await {
+                    Ok(bytes) if bytes.len() > 50_000 => {
+                        if let Err(e) = tokio::fs::write(&tmp, &bytes).await {
+                            let _ = tokio::fs::remove_file(&tmp).await;
+                            return Err(format!("запись {}: {e}", dest.display()));
+                        }
+                        if let Err(e) = tokio::fs::rename(&tmp, dest).await {
+                            let _ = tokio::fs::remove_file(&tmp).await;
+                            return Err(format!("перемещение {}: {e}", dest.display()));
+                        }
+                        downloaded = true;
+                        break;
+                    }
+                    Ok(bytes) => {
+                        tracing::warn!(url = *url, size = bytes.len(), "файл geodata слишком мал");
+                    }
+                    Err(e) => {
+                        tracing::warn!(url = *url, error = %e, "ошибка чтения тела geodata");
+                    }
+                }
+            }
+            Ok(resp) => {
+                tracing::warn!(url = *url, status = %resp.status(), "не удалось скачать geodata");
+            }
+            Err(e) => {
+                tracing::warn!(url = *url, error = %e, "ошибка сети при скачивании geodata");
+            }
+        }
+    }
+
+    let _ = tokio::fs::remove_file(&tmp).await;
+    if downloaded {
+        Ok(())
+    } else {
+        Err(format!("не удалось загрузить geodata для {}", dest.display()))
+    }
 }
 pub async fn rollback(bin: &str) -> Result<(), String> {
     tokio::fs::rename(Path::new(bin).with_extension("previous"), bin)
@@ -280,5 +382,39 @@ mod tests {
         assert!(!needs_update(Some("26.3.27"), ""));
         // Своя версия неизвестна — обновлять вслепую опаснее, чем не трогать.
         assert!(!needs_update(None, "v26.7.11"));
+    }
+
+    #[test]
+    fn xray_asset_dir_resolves_env_or_default() {
+        let prev = std::env::var("XRAY_LOCATION_ASSET").ok();
+        std::env::remove_var("XRAY_LOCATION_ASSET");
+        assert_eq!(xray_asset_dir(), std::path::PathBuf::from("/usr/local/share/xray"));
+
+        std::env::set_var("XRAY_LOCATION_ASSET", "/custom/assets");
+        assert_eq!(xray_asset_dir(), std::path::PathBuf::from("/custom/assets"));
+
+        std::env::set_var("XRAY_LOCATION_ASSET", "   ");
+        assert_eq!(xray_asset_dir(), std::path::PathBuf::from("/usr/local/share/xray"));
+
+        if let Some(p) = prev {
+            std::env::set_var("XRAY_LOCATION_ASSET", p);
+        } else {
+            std::env::remove_var("XRAY_LOCATION_ASSET");
+        }
+    }
+
+    #[tokio::test]
+    async fn atomic_replace_creates_new_file_safely() {
+        let dir = std::env::temp_dir().join(format!("sn-atomic-new-test-{}", std::process::id()));
+        tokio::fs::create_dir_all(&dir).await.unwrap();
+        let target = dir.join("geodata.dat");
+        let fresh = dir.join("fresh.dat");
+        tokio::fs::write(&fresh, b"geodata_bytes").await.unwrap();
+
+        assert!(!target.exists());
+        atomic_replace(&fresh, &target).await.unwrap();
+        assert_eq!(tokio::fs::read(&target).await.unwrap(), b"geodata_bytes");
+
+        tokio::fs::remove_dir_all(dir).await.unwrap();
     }
 }

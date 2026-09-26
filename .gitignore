@@ -20,6 +20,7 @@
 /devtools/tests/*
 !/devtools/tests/profile-form.test.cjs
 !/devtools/tests/test_release_version.py
+!/devtools/tests/help-parity.test.cjs
 /docs/design/
 /docs/repository-preparation.md
 __pycache__/

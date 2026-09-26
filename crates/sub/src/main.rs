@@ -1125,23 +1125,29 @@ pub enum DeviceVerdict {
 async fn register_device(st: &SubState, short_id: &str, dev: &DeviceInfo) -> DeviceVerdict {
     match &st.source {
         Source::Db(pool) => {
-            let row = sqlx::query(
-                "SELECT c.id,
-                        COALESCE(s.device_limit, 0) AS device_limit,
-                        (SELECT count(*) FROM devices d WHERE d.client_id = c.id) AS used,
-                        EXISTS (SELECT 1 FROM devices d
-                                 WHERE d.client_id = c.id AND d.hwid = $2) AS known
-                   FROM clients c
-                   LEFT JOIN subscriptions s ON s.client_id = c.id AND s.is_current
-                  WHERE c.short_id = $1 AND c.deleted_at IS NULL",
+            let Ok(mut tx) = pool.begin().await else { return DeviceVerdict::Allow };
+            let client_id: std::result::Result<Option<i64>, _> = sqlx::query_scalar(
+                "SELECT id FROM clients WHERE short_id = $1 AND deleted_at IS NULL FOR UPDATE",
             )
             .bind(short_id)
+            .fetch_optional(&mut *tx)
+            .await;
+            let Ok(Some(client_id)) = client_id else { return DeviceVerdict::Allow };
+            let row = sqlx::query(
+                "SELECT COALESCE(s.device_limit, 0) AS device_limit,
+                        (SELECT count(*) FROM devices d WHERE d.client_id = $1) AS used,
+                        EXISTS (SELECT 1 FROM devices d
+                                 WHERE d.client_id = $1 AND d.hwid = $2) AS known
+                   FROM clients c
+                   LEFT JOIN subscriptions s ON s.client_id = c.id AND s.is_current
+                  WHERE c.id = $1",
+            )
+            .bind(client_id)
             .bind(&dev.hwid)
-            .fetch_optional(pool)
+            .fetch_optional(&mut *tx)
             .await;
 
             let Ok(Some(row)) = row else { return DeviceVerdict::Allow };
-            let client_id: i64 = row.get("id");
             let limit: i32 = row.get("device_limit");
             let used: i64 = row.get("used");
             let known: bool = row.get("known");
@@ -1150,7 +1156,7 @@ async fn register_device(st: &SubState, short_id: &str, dev: &DeviceInfo) -> Dev
                 return DeviceVerdict::OverLimit { used, limit };
             }
 
-            let _ = sqlx::query(
+            let inserted = sqlx::query(
                 "INSERT INTO devices (client_id, hwid, platform, model, app_version)
                  VALUES ($1, $2, $3, $4, $5)
                  ON CONFLICT (client_id, hwid) DO UPDATE
@@ -1164,8 +1170,10 @@ async fn register_device(st: &SubState, short_id: &str, dev: &DeviceInfo) -> Dev
             .bind(&dev.platform)
             .bind(&dev.model)
             .bind(&dev.app_version)
-            .execute(pool)
+            .execute(&mut *tx)
             .await;
+
+            if inserted.is_ok() { let _ = tx.commit().await; }
 
             DeviceVerdict::Allow
         }

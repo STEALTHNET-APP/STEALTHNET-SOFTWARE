@@ -329,27 +329,37 @@ async fn register_device(
         return Err(Error::bad("пустой идентификатор устройства"));
     }
 
-    let row = sqlx::query(
-        "SELECT c.id,
-                COALESCE(s.device_limit, 0) AS device_limit,
-                (SELECT count(*) FROM devices d WHERE d.client_id = c.id) AS used,
-                EXISTS (SELECT 1 FROM devices d WHERE d.client_id = c.id AND d.hwid = $2) AS known
-           FROM clients c
-           LEFT JOIN subscriptions s ON s.client_id = c.id AND s.is_current
-          WHERE c.short_id = $1 AND c.deleted_at IS NULL",
+    // Serialize device admission for this client. Counting first and inserting
+    // later lets concurrent new HWIDs all consume the same remaining slot.
+    let mut tx = st.pool.begin().await?;
+    let client_id: i64 = sqlx::query_scalar(
+        "SELECT id FROM clients WHERE short_id = $1 AND deleted_at IS NULL FOR UPDATE",
     )
     .bind(&short_id)
-    .bind(&hwid)
-    .fetch_optional(&st.pool)
+    .fetch_optional(&mut *tx)
     .await?
     .ok_or(Error::NotFound)?;
 
-    let client_id: i64 = row.get("id");
+    let row = sqlx::query(
+        "SELECT COALESCE(s.device_limit, 0) AS device_limit,
+                (SELECT count(*) FROM devices d WHERE d.client_id = $1) AS used,
+                EXISTS (SELECT 1 FROM devices d WHERE d.client_id = $1 AND d.hwid = $2) AS known
+           FROM clients c
+           LEFT JOIN subscriptions s ON s.client_id = c.id AND s.is_current
+          WHERE c.id = $1",
+    )
+    .bind(client_id)
+    .bind(&hwid)
+    .fetch_optional(&mut *tx)
+    .await?
+    .ok_or(Error::NotFound)?;
+
     let limit: i32 = row.get("device_limit");
     let used: i64 = row.get("used");
     let known: bool = row.get("known");
 
     if !known && limit > 0 && used >= limit as i64 {
+        tx.commit().await?;
         return Ok(Json(json!({ "over_limit": true, "used": used, "limit": limit })));
     }
 
@@ -367,8 +377,10 @@ async fn register_device(
     .bind(body.platform.map(|s| s.chars().take(64).collect::<String>()))
     .bind(body.model.map(|s| s.chars().take(64).collect::<String>()))
     .bind(body.app_version.map(|s| s.chars().take(32).collect::<String>()))
-    .execute(&st.pool)
+    .execute(&mut *tx)
     .await?;
+
+    tx.commit().await?;
 
     Ok(Json(json!({ "over_limit": false, "used": used + if known { 0 } else { 1 }, "limit": limit })))
 }

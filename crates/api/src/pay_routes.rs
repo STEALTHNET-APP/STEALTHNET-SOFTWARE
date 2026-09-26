@@ -45,7 +45,7 @@ async fn webhook(
     st.payments.refresh(&st.pool).await;
 
     let Some(provider) = st.payments.get(&provider_id) else {
-        log_webhook(&st, &provider_id, &raw, false, None, Some("нет такого модуля")).await;
+        log_webhook(&st, &provider_id, &raw, false, None, None, Some("нет такого модуля")).await;
         return Ok(Json(json!({ "ok": false, "error": "неизвестный модуль" })));
     };
 
@@ -73,12 +73,12 @@ async fn webhook(
 
             match st.payments.apply_outcome(&st.pool, &provider_id, &outcome).await {
                 Ok(pid) => {
-                    log_webhook(&st, &provider_id, &outcome.raw, true, pid, None).await;
+                    log_webhook(&st, &provider_id, &outcome.raw, true, pid, outcome.external_event_id.as_deref(), None).await;
                     tracing::info!(provider = provider_id, payment = ?pid, "оплата применена");
                     Ok(Json(json!({ "ok": true })))
                 }
                 Err(e) => {
-                    log_webhook(&st, &provider_id, &outcome.raw, true, None, Some(&e.to_string())).await;
+                    log_webhook(&st, &provider_id, &outcome.raw, true, None, outcome.external_event_id.as_deref(), Some(&e.to_string())).await;
                     tracing::warn!(provider = provider_id, error = %e, "не удалось применить оплату");
                     Err(e)
                 }
@@ -87,7 +87,7 @@ async fn webhook(
         Err(e) => {
             // Неверная подпись — самый важный случай для журнала:
             // это либо ошибка настройки, либо попытка подделать оплату.
-            log_webhook(&st, &provider_id, &raw, false, None, Some(&e.to_string())).await;
+            log_webhook(&st, &provider_id, &raw, false, None, None, Some(&e.to_string())).await;
             tracing::warn!(provider = provider_id, error = %e, "вебхук отклонён");
             Err(e)
         }
@@ -100,17 +100,19 @@ async fn log_webhook(
     payload: &Value,
     signature_ok: bool,
     payment_id: Option<i64>,
+    external_id: Option<&str>,
     error: Option<&str>,
 ) {
     let _ = sqlx::query(
-        "INSERT INTO payment_webhooks (provider, payload, signature_ok, processed, payment_id, error)
-         VALUES ($1, $2, $3, $4, $5, $6)",
+        "INSERT INTO payment_webhooks (provider, payload, signature_ok, processed, payment_id, external_id, error)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)",
     )
     .bind(provider)
     .bind(payload)
     .bind(signature_ok)
     .bind(payment_id.is_some())
     .bind(payment_id)
+    .bind(external_id)
     .bind(error)
     .execute(&st.pool)
     .await;

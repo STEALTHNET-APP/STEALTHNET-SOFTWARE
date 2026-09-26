@@ -269,19 +269,12 @@ impl PaymentProvider for GenericHttp {
             .get(&header_name)
             .ok_or_else(|| Error::bad(format!("нет заголовка {header_name}")))?;
 
+        let signature_bytes = hex::decode(got.trim())
+            .map_err(|_| Error::Forbidden)?;
         let mut mac = HmacSha256::new_from_slice(secret.as_bytes())
             .map_err(|_| Error::Internal("плохой секрет".into()))?;
         mac.update(body);
-        let expected = hex::encode(mac.finalize().into_bytes());
-
-        // Сравнение постоянного времени: по времени ответа подпись подбирается.
-        let ok = got.len() == expected.len()
-            && got
-                .bytes()
-                .zip(expected.bytes())
-                .fold(0u8, |a, (x, y)| a | (x ^ y))
-                == 0;
-        if !ok {
+        if mac.verify_slice(&signature_bytes).is_err() {
             return Err(Error::Forbidden);
         }
 
@@ -450,6 +443,34 @@ mod tests {
         assert_eq!(out.amount_minor, Some(1999));
         assert_eq!(out.currency.as_deref(), Some("RUB"));
     }
+
+    #[tokio::test]
+    async fn подпись_в_верхнем_регистре_принимается() {
+        let secret = "s3cret";
+        let body = br#"{"order":"77","state":"PAID","amount":"19.99","currency":"RUB"}"#;
+        let mut mac = HmacSha256::new_from_slice(secret.as_bytes()).unwrap();
+        mac.update(body);
+        let sig = hex::encode(mac.finalize().into_bytes()).to_uppercase();
+
+        let p = cfg(&[
+            ("webhook_secret", secret),
+            ("webhook_signature_header", "x-signature"),
+            ("webhook_payment_id_path", "order"),
+            ("webhook_status_path", "state"),
+            ("webhook_success_value", "paid"),
+            ("webhook_amount_path", "amount"),
+            ("webhook_currency_path", "currency"),
+        ]);
+        let mut h = HashMap::new();
+        h.insert("x-signature".to_string(), sig);
+
+        let out = p.handle_webhook(&h, body).await.expect("подпись в верхнем регистре верная");
+        assert_eq!(out.payment_id, Some(77));
+        assert_eq!(out.status, PaymentStatus::Success);
+        assert_eq!(out.amount_minor, Some(1999));
+        assert_eq!(out.currency.as_deref(), Some("RUB"));
+    }
+
     #[tokio::test]
     async fn signed_success_requires_precise_amount_currency_and_order() {
         let p = cfg(&[("webhook_secret","test"),("webhook_payment_id_path","order"),
