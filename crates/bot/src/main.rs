@@ -126,7 +126,37 @@ pub struct Ctx<'a> {
     pub s: settings::View,
 }
 
-async fn handle(
+// One acknowledgement owner, before settings/database/provider work. Results use messages.
+async fn handle(tg:&Tg,pool:&Pool,reg:&Registry,cfg:&Config,bot:&settings::BotSettings,u:&Value)->Result<()> {
+    let callback=u.get("callback_query").filter(|cq|cq["message"]["chat"]["type"]=="private");
+    if let Some(cq)=callback {tg.answer_callback(cq["id"].as_str().unwrap_or_default(),None).await.ok();}
+    match handle_inner(tg,pool,reg,cfg,bot,u).await {
+        Ok(())=>Ok(()),
+        Err(error)=>{
+            tracing::warn!(%error,"Не удалось обработать обновление бота");
+            let chat=callback.map(|cq|&cq["message"]["chat"]).or_else(||u.get("message").map(|m|&m["chat"]));
+            if let Some(chat)=chat.filter(|chat|chat["type"]=="private") {
+                let data=callback.and_then(|cq|cq["data"].as_str()).unwrap_or("");
+                let financial=data.starts_with("c:") || data.starts_with("m:") || data.starts_with("am:") || !u["message"]["successful_payment"].is_null();
+                let text=if financial {
+                    "Не удалось завершить действие с оплатой. Её результат пока неизвестен. Не оплачивайте повторно: проверьте свой счёт позже или обратитесь в поддержку."
+                } else {"Не удалось выполнить действие. Кнопка могла устареть или сервис временно недоступен. Откройте актуальное меню или обратитесь в поддержку."};
+                let mut rows=vec![vec![Btn::Data("В меню".into(),"menu".into())],vec![Btn::Data("Поддержка".into(),"tickets".into())]];
+                if data.strip_prefix("c:").is_some_and(|id|id.parse::<i64>().is_ok()) {
+                    rows.insert(0,vec![Btn::Data("Проверить этот счёт".into(),data.into())]);
+                }
+                tg.send(chat["id"].as_i64().unwrap_or(0),text,Some(keyboard(rows))).await?;
+                Ok(())
+            } else {Err(error)}
+        }
+    }
+}
+
+fn recovery_keyboard()->Value {
+    keyboard(vec![vec![Btn::Data("В меню".into(),"menu".into())],vec![Btn::Data("Поддержка".into(),"tickets".into())]])
+}
+
+async fn handle_inner(
     tg: &Tg,
     pool: &Pool,
     reg: &Registry,
@@ -164,21 +194,15 @@ async fn handle(
     }
     if let Some(cq) = u.get("callback_query").filter(|v| !v.is_null()) {
         if cq["message"]["chat"]["type"] != "private" {return Ok(());}
-        tg.answer_callback(cq["id"].as_str().unwrap_or_default(),None).await.ok();
         let chat = cq["message"]["chat"]["id"].as_i64().unwrap_or(0);
         let mid = cq["message"]["message_id"].as_i64().unwrap_or(0);
         let user = cq["from"]["id"].as_i64().unwrap_or(0);
         // «Я подписался» — единственная кнопка, доступная за стеной.
         let recheck = cq["data"].as_str() == Some("subchk");
         if gate_channel(&ctx, chat, user, Some(mid)).await? {
-            if recheck {
-                tg.answer_callback(cq["id"].as_str().unwrap_or_default(),
-                                   Some("Подписка на канал не найдена")).await.ok();
-            }
             return Ok(());
         }
         if recheck {
-            tg.answer_callback(cq["id"].as_str().unwrap_or_default(), Some("Спасибо!")).await.ok();
             let client_id = ensure_client(pool, &cq["from"]).await?;
     sqlx::query("DELETE FROM bot_await WHERE client_id=$1").bind(client_id).execute(pool).await?;
             return show_menu(&ctx, chat, client_id, Some(mid)).await;
@@ -268,7 +292,10 @@ struct SubInfo {
 
 async fn sub_info(pool: &Pool, client_id: i64) -> Result<SubInfo> {
     let r = sqlx::query(
-        "SELECT c.status::text AS status, c.short_id, COALESCE(s.autorenew, false) AS autorenew,
+        "SELECT CASE WHEN c.status IN ('disabled','limited') THEN c.status::text
+                     WHEN s.canceled_at IS NOT NULL THEN 'disabled'
+                     WHEN s.id IS NULL THEN 'expired' ELSE c.status::text END AS status,
+                c.short_id, COALESCE(s.autorenew, false) AS autorenew,
                 s.expires_at, s.traffic_used_bytes, s.traffic_limit_bytes,
                 t.title AS tariff
            FROM clients c
@@ -291,6 +318,19 @@ async fn sub_info(pool: &Pool, client_id: i64) -> Result<SubInfo> {
     })
 }
 
+fn subscription_active(info:&SubInfo)->bool {
+    info.status=="active" && info.expires.is_none_or(|until|until>chrono::Utc::now())
+}
+
+fn subscription_inactive_text(info:&SubInfo)->&'static str {
+    match info.status.as_str() {
+        "disabled"=>"Доступ отключён. Обратитесь в поддержку, чтобы уточнить причину.",
+        "limited"=>"Доступ ограничен. Проверьте лимиты подписки и устройств или обратитесь в поддержку.",
+        _ if info.expires.is_some()=>"Срок подписки истёк. Откройте тарифы для продления.",
+        _=>"У вас пока нет активной подписки. Выберите доступный тариф, в том числе бесплатный, если он предложен. Ссылка появится после активации.",
+    }
+}
+
 fn main_menu(
     brand: &str,
     info: &SubInfo,
@@ -299,7 +339,7 @@ fn main_menu(
     _panel_base: Option<&str>,
 ) -> (String, Value) {
     let brand=html_escape(&st.custom("bot.brand_name",brand));
-    let active = info.status == "active";
+    let active = subscription_active(info);
     let head = if active {
         let until = info
             .expires
@@ -315,7 +355,7 @@ fn main_menu(
             money::format_bytes(info.used),
         )
     } else {
-        format!("<b>{brand}</b>\n\nУ вас нет активной подписки.\nВыберите тариф — займёт минуту.")
+        format!("<b>{brand}</b>\n\n{}",subscription_inactive_text(info))
     };
 
     // Объявление под меню: акция, предупреждение о работах, что угодно.
@@ -402,8 +442,8 @@ async fn show_tariffs(c: &Ctx<'_>, chat: i64, client_id: i64, mid: Option<i64>) 
     if rows.is_empty() {
         let text = "Тарифы пока не настроены. Загляните позже.";
         match mid {
-            Some(m) => tg.edit(chat, m, text, None).await?,
-            None => { tg.send(chat, text, None).await?; }
+            Some(m) => tg.edit(chat, m, text, Some(recovery_keyboard())).await?,
+            None => { tg.send(chat, text, Some(recovery_keyboard())).await?; }
         }
         return Ok(());
     }
@@ -488,7 +528,7 @@ async fn show_periods(c: &Ctx<'_>, chat: i64, mid: i64, tariff_id: i64) -> Resul
     .fetch_all(pool)
     .await?;
 
-    let title: String = sqlx::query_scalar("SELECT title FROM tariffs WHERE id = $1")
+    let title: String = sqlx::query_scalar("SELECT title FROM tariffs WHERE id = $1 AND is_active AND is_visible")
         .bind(tariff_id)
         .fetch_one(pool)
         .await?;
@@ -557,6 +597,11 @@ async fn show_methods(
     tariff_id: i64,
     days: i32,
 ) -> Result<()> {
+    let available:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM tariffs WHERE id=$1 AND is_active AND is_visible)")
+        .bind(tariff_id).fetch_one(pool).await?;
+    if !available {
+        return tg.edit(chat,mid,"Этот тариф больше недоступен. Откройте актуальные тарифы.",Some(keyboard(vec![vec![Btn::Data("К тарифам".into(),"buy".into())]]))).await;
+    }
     let currency = money::service_currency(pool).await;
     let prices = sqlx::query(
         "SELECT currency, amount_minor FROM tariff_prices
@@ -570,7 +615,7 @@ async fn show_methods(
     .await?;
 
     if !prices.iter().any(|r| r.get::<String, _>("currency") == currency) {
-        tg.edit(chat, mid, "Цена не найдена.", None).await?;
+        tg.edit(chat, mid, "Цена больше недоступна. Откройте актуальные тарифы.", Some(keyboard(vec![vec![Btn::Data("К тарифам".into(),"buy".into())]]))).await?;
         return Ok(());
     }
 
@@ -652,26 +697,30 @@ async fn show_subscription(c: &Ctx<'_>, chat: i64, client_id: i64, mid: Option<i
     let info = sub_info(pool, client_id).await?;
     let url = format!("{}/{}", cfg.sub_public_url.trim_end_matches('/'), info.short_id);
 
-    let text = if info.status == "active" {
+    let text = if subscription_active(&info) {
         format!(
             "<b>Ваша подписка</b>\n\nСсылка для приложения:\n<code>{url}</code>\n\n\
              Скопируйте её и добавьте как подписку в вашем VPN-приложении.\n\
              Или откройте ссылку в браузере — там есть инструкция."
         )
     } else {
-        format!("Подписка неактивна.\n\nСсылка появится сразу после оплаты.")
+        subscription_inactive_text(&info).to_string()
     };
 
-    let kb = keyboard(vec![
+    let mut rows = vec![
         vec![Btn::Data("📱 Как подключить".into(), "apps".into())],
         vec![Btn::Data(
             if info.autorenew { "🔁 Автопродление: включено".into() }
             else { "🔁 Автопродление: выключено".into() },
             "renew".into(),
         )],
-        vec![Btn::Url("🌐 Открыть страницу".into(), url)],
-        vec![Btn::Data("← Назад".into(), "menu".into())],
-    ]);
+    ];
+    if subscription_active(&info) { rows.push(vec![Btn::Url("🌐 Открыть страницу".into(), url)]); }
+    if matches!(info.status.as_str(),"disabled"|"limited") {
+        rows.push(vec![Btn::Data("Поддержка".into(),"tickets".into())]);
+    } else if !subscription_active(&info) { rows.push(vec![Btn::Data("К тарифам".into(),"buy".into())]); }
+    rows.push(vec![Btn::Data("← Назад".into(),"menu".into())]);
+    let kb=keyboard(rows);
     tg.screen(chat, mid, &text, c.s.image(settings::Screen::Sub).as_deref(), Some(kb))
         .await?;
     Ok(())
@@ -699,10 +748,8 @@ async fn on_message(c: &Ctx<'_>, msg: &Value) -> Result<()> {
 
         let client_id = ensure_client(pool, from).await?;
         sn_core::addons::refresh(pool,client_id).await?;
-        let info = sub_info(pool, client_id).await?;
-        let until = info.expires.map(|e| e.format("%d.%m.%Y").to_string()).unwrap_or_default();
         let receipt = addon_receipt(pool, outcome.payment_id.unwrap_or(0), client_id).await?
-            .unwrap_or_else(||format!("✅ Оплата получена!\n\nПодписка активна до <b>{until}</b>."));
+            .unwrap_or_else(||"✅ Оплата подтверждена. Состояние доступа и срок смотрите в разделе «Моя подписка».".into());
         tg.send(
             chat,
             &receipt,
@@ -843,14 +890,12 @@ async fn on_callback(c: &Ctx<'_>, cq: &Value) -> Result<()> {
     let (tg, pool, cfg, reg) = (c.tg, c.pool, c.cfg, c.reg);
     let _ = (cfg, reg);
 
-    let id = cq["id"].as_str().unwrap_or_default();
     let chat = cq["message"]["chat"]["id"].as_i64().unwrap_or(0);
     let mid = cq["message"]["message_id"].as_i64().unwrap_or(0);
     let data = cq["data"].as_str().unwrap_or("");
     let client_id = ensure_client(pool, &cq["from"]).await?;
     sqlx::query("DELETE FROM bot_await WHERE client_id=$1").bind(client_id).execute(pool).await?;
 
-    tg.answer_callback(id, None).await.ok();
 
     let parts: Vec<&str> = data.split(':').collect();
     if let Some(token)=data.strip_prefix("cablink:") {
@@ -874,7 +919,7 @@ async fn on_callback(c: &Ctx<'_>, cq: &Value) -> Result<()> {
         ["renew"] => {
             // Переключаем и сразу показываем карточку заново: без этого
             // человек не видит, сработало ли нажатие.
-            let now: bool = sqlx::query_scalar(
+            let _now: bool = sqlx::query_scalar(
                 "UPDATE subscriptions SET autorenew = NOT autorenew
                   WHERE client_id = $1 AND is_current RETURNING autorenew",
             )
@@ -882,12 +927,6 @@ async fn on_callback(c: &Ctx<'_>, cq: &Value) -> Result<()> {
             .fetch_optional(pool)
             .await?
             .unwrap_or(false);
-            tg.answer_callback(
-                id,
-                Some(if now { "Автопродление включено" } else { "Автопродление выключено" }),
-            )
-            .await
-            .ok();
             show_subscription(c, chat, client_id, Some(mid)).await
         }
         ["ref"] => {
@@ -942,7 +981,7 @@ async fn on_callback(c: &Ctx<'_>, cq: &Value) -> Result<()> {
             let days: i32 = days.parse().map_err(|_| Error::bad("плохой срок"))?;
             create_and_show_invoice(tg, pool, reg, chat, mid, client_id, tid, days, provider, currency).await
         }
-        _ => Ok(()),
+        _ => tg.edit(chat,mid,"Эта кнопка устарела. Откройте актуальное меню.",Some(recovery_keyboard())).await,
     }
 }
 
@@ -963,7 +1002,7 @@ async fn create_and_show_invoice(
     let row = sqlx::query(
         "SELECT tp.amount_minor, t.title
            FROM tariff_prices tp JOIN tariffs t ON t.id = tp.tariff_id
-          WHERE tp.tariff_id = $1 AND tp.period_days = $2 AND tp.currency = $3 AND tp.is_active",
+          WHERE tp.tariff_id = $1 AND tp.period_days = $2 AND tp.currency = $3 AND tp.is_active AND t.is_active AND t.is_visible",
     )
     .bind(tariff_id)
     .bind(days)
@@ -1010,7 +1049,7 @@ async fn create_and_show_invoice(
                 rows.push(vec![Btn::Url("💳 Оплатить".into(), invoice.pay_url.clone())]);
             }
             rows.push(vec![Btn::Data("🔄 Проверить оплату".into(), format!("c:{payment_id}"))]);
-            rows.push(vec![Btn::Data("← Отмена".into(), "buy".into())]);
+            rows.push(vec![Btn::Data("← К тарифам".into(), "buy".into())]);
 
             let instructions = invoice.payload["instructions"].as_str().unwrap_or("");
             let body = if instructions.is_empty() {
@@ -1028,10 +1067,11 @@ async fn create_and_show_invoice(
             tg.edit(chat, mid, &body, Some(keyboard(rows))).await
         }
         Err(e) => {
+            tracing::warn!(error=%e,client_id,"Не удалось создать счёт в боте");
             tg.edit(
                 chat,
                 mid,
-                &format!("⚠️ Не удалось создать счёт.\n<i>{e}</i>"),
+                "⚠️ Не удалось подтвердить создание счёта. Не оплачивайте повторно. Если вы уже перешли к оплате, проверьте свой счёт позже или обратитесь в поддержку.",
                 Some(keyboard(vec![vec![Btn::Data("← Назад".into(), "buy".into())]])),
             )
             .await
@@ -1053,40 +1093,52 @@ async fn check_payment(
     tg: &Tg, pool: &Pool, reg: &Registry, cfg: &Config,
     chat: i64, mid: i64, client_id: i64, payment_id: i64,
 ) -> Result<()> {
-    let row = sqlx::query(
-        "SELECT status::text AS status, provider, provider_txid
-           FROM payments WHERE id = $1 AND client_id = $2",
-    )
-    .bind(payment_id)
-    .bind(client_id)
-    .fetch_optional(pool)
-    .await?
-    .ok_or_else(|| Error::bad("платёж не найден"))?;
-
-    let _=row;
-    reg.check_payment(pool,payment_id).await?;
-
-    sn_core::addons::refresh(pool,client_id).await?;
-    let info = sub_info(pool, client_id).await?;
-    let paid: bool = sqlx::query_scalar("SELECT status='success' FROM payments WHERE id=$1 AND client_id=$2")
+    // Ownership is checked before contacting a payment provider.
+    let owned:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM payments WHERE id=$1 AND client_id=$2)")
         .bind(payment_id).bind(client_id).fetch_one(pool).await?;
-    if paid {
-        let until = info.expires.map(|e| e.format("%d.%m.%Y").to_string()).unwrap_or_default();
-        let receipt=addon_receipt(pool,payment_id,client_id).await?
-            .unwrap_or_else(||format!("✅ Оплата подтверждена!\n\nПодписка активна до <b>{until}</b>."));
-        tg.edit(chat, mid,
-            &receipt,
-            Some(keyboard(vec![vec![Btn::Data("🔑 Моя подписка".into(), "sub".into())]]))).await?;
-    } else {
-        tg.edit(chat, mid,
-            "⏳ Оплата пока не поступила.\n\nЕсли вы уже заплатили — подождите минуту и нажмите ещё раз.",
-            Some(keyboard(vec![
-                vec![Btn::Data("🔄 Проверить ещё раз".into(), format!("c:{payment_id}"))],
-                vec![Btn::Data("← Назад".into(), "buy".into())],
-            ]))).await?;
+    if !owned {
+        return tg.edit(chat,mid,"Счёт не найден. Откройте свой счёт или обратитесь в поддержку.",Some(recovery_keyboard())).await;
     }
-    let _ = cfg;
+    let uncertain=match reg.check_payment(pool,payment_id).await {
+        Ok(())=>false,
+        Err(error)=>{tracing::warn!(%error,payment_id,"Не удалось проверить оплату");true}
+    };
+    let row=sqlx::query("SELECT status::text AS status,pay_url,kind::text AS kind,COALESCE(expires_at<=now(),false) AS expired FROM payments WHERE id=$1 AND client_id=$2")
+        .bind(payment_id).bind(client_id).fetch_one(pool).await?;
+    let status:String=row.get("status");
+    if status=="success" {
+        sn_core::addons::refresh(pool,client_id).await?;
+        let receipt=addon_receipt(pool,payment_id,client_id).await?
+            .unwrap_or_else(||"✅ Оплата подтверждена. Состояние доступа и срок смотрите в разделе «Моя подписка».".into());
+        tg.edit(chat,mid,&receipt,Some(keyboard(vec![vec![Btn::Data("🔑 Моя подписка".into(),"sub".into())]]))).await?;
+    } else {
+        let back=if row.get::<String,_>("kind")=="addon" {"addons"} else {"buy"};
+        let (text,kb)=payment_wait_screen(&status,row.get::<Option<String>,_>("pay_url").as_deref(),row.get("expired"),uncertain,payment_id,back);
+        tg.edit(chat,mid,text,Some(kb)).await?;
+    }
+    let _=cfg;
     Ok(())
+}
+
+fn payment_wait_screen(status:&str,pay_url:Option<&str>,expired:bool,uncertain:bool,id:i64,back:&str)->(&'static str,Value) {
+    let text=if uncertain {
+        "Не удалось уточнить результат оплаты. Не оплачивайте повторно. Проверьте этот счёт позже или обратитесь в поддержку."
+    } else {match status {
+        "pending" if expired=>"Срок действия счёта истёк. Если вы уже оплатили, проверьте счёт позже или обратитесь в поддержку.",
+        "pending"=>"⏳ Оплата пока не поступила. Если вы уже заплатили — подождите минуту и нажмите ещё раз.",
+        "canceled"=>"Счёт отменён или срок его действия истёк. Если деньги списаны, обратитесь в поддержку.",
+        "failed"=>"Платёж завершился ошибкой. Если деньги списаны, обратитесь в поддержку.",
+        "refunded"=>"Платёж возвращён. По вопросам возврата обратитесь в поддержку.",
+        _=>"Статус счёта пока неизвестен. Не оплачивайте повторно. Обратитесь в поддержку.",
+    }};
+    let mut rows=Vec::new();
+    if status=="pending" && !expired && !uncertain {
+        if let Some(url)=pay_url.filter(|url|!url.is_empty()) {rows.push(vec![Btn::Url("💳 Оплатить".into(),url.into())]);}
+    }
+    if status!="refunded" {rows.push(vec![Btn::Data("🔄 Проверить ещё раз".into(),format!("c:{id}"))]);}
+    rows.push(vec![Btn::Data(if back=="addons" {"К пакетам"} else {"К тарифам"}.into(),back.into())]);
+    rows.push(vec![Btn::Data("Поддержка".into(),"tickets".into())]);
+    (text,keyboard(rows))
 }
 
 #[cfg(test)]
@@ -1342,5 +1394,111 @@ fn html_escape(text: &str) -> String { text.replace('&',"&amp;").replace('<',"&l
         handle(&tg,&pool,&reg,&cfg,&settings,&message("/cancel","private")).await.unwrap();
         assert!(tickets::pending(&pool,client).await.unwrap().is_none());
         server.abort();
+    }
+}
+
+#[cfg(test)] mod recovery_tests {
+    use super::*;
+    use serde_json::json;
+    #[test] fn payment_states_keep_only_payable_invoice_links() {
+        let (text,kb)=payment_wait_screen("pending",Some("https://cash.example.test/old"),false,false,42,"buy");
+        assert!(text.contains("пока не поступила"));
+        assert!(kb.to_string().contains("https://cash.example.test/old"));
+        assert!(kb.to_string().contains("c:42"));
+        for status in ["canceled","failed","refunded"] {
+            let (text,kb)=payment_wait_screen(status,Some("https://cash.example.test/old"),false,false,42,"addons");
+            assert!(!text.contains("пока не поступила"));assert!(!kb.to_string().contains("https://cash.example.test/old"));
+            assert!(kb.to_string().contains("addons"));
+        }
+        let (text,kb)=payment_wait_screen("pending",Some("https://cash.example.test/old"),true,false,42,"buy");
+        assert!(text.contains("истёк"));assert!(!kb.to_string().contains("https://cash.example.test/old"));
+        let (text,kb)=payment_wait_screen("pending",Some("https://cash.example.test/old"),false,true,42,"buy");
+        assert!(text.contains("Не оплачивайте повторно"));assert!(!text.contains("пока не поступила"));assert!(kb.to_string().contains("c:42"));
+    }
+    #[test] fn subscription_states_do_not_promise_payment_unlocks_restrictions() {
+        let mut info=SubInfo{status:"active".into(),expires:None,used:0,limit:None,short_id:"test".into(),autorenew:false,tariff:None};
+        assert!(subscription_active(&info));
+        info.expires=Some(chrono::Utc::now()-chrono::Duration::days(1));assert!(!subscription_active(&info));
+        for (status,word) in [("limited","ограничен"),("disabled","отключён"),("expired","истёк")] {
+            info.status=status.into();let text=subscription_inactive_text(&info);assert!(text.contains(word));assert!(!text.contains("после оплаты"));
+        }
+        info.expires=None;assert!(subscription_inactive_text(&info).contains("активации"));
+    }
+    #[tokio::test] async fn callback_database_failure_acknowledged_once_and_reports_safe_recovery() {
+        let pool=sqlx::postgres::PgPoolOptions::new().connect_lazy("postgres://unused:unused@127.0.0.1:1/unused").unwrap();pool.close().await;
+        let (tg,server)=tg::transport_tests::mock(vec![json!({"ok":true,"result":{"message_id":10}});2]).await;
+        let cfg=Config{database_url:String::new(),api_bind:String::new(),sub_bind:String::new(),sub_public_url:String::new(),brand_name:"QA".into(),web_root:String::new(),sub_mode:"db".into(),panel_url:String::new(),sub_service_token:None};
+        let callback=json!({"callback_query":{"id":"failure","from":{"id":123},"message":{"chat":{"id":123,"type":"private"},"message_id":10},"data":"c:42"}});
+        handle(&tg,&pool,&Registry::from_env(),&cfg,&settings::BotSettings,&callback).await.unwrap();
+        let requests=server.await.unwrap();assert!(requests[0].0.ends_with("answerCallbackQuery"));assert!(requests[1].0.ends_with("sendMessage"));
+        assert!(requests[1].1["text"].as_str().unwrap().contains("Не оплачивайте повторно"));
+        assert!(!requests[1].1.to_string().contains("pool closed"));
+    }
+}
+
+#[cfg(test)] mod recovery_database_tests {
+    use super::*;
+    use serde_json::json;
+    #[tokio::test]
+    #[ignore = "requires SN_TEST_DATABASE_URL pointing to an isolated sn_audit database"]
+    async fn recovery_callbacks_payment_states_and_ownership() -> Result<()> {
+        let url=std::env::var("SN_TEST_DATABASE_URL").expect("isolated DB required");
+        let pool=sn_core::db::connect(&url).await?;
+        let db:String=sqlx::query_scalar("SELECT current_database()").fetch_one(&pool).await?;assert!(db.starts_with("sn_audit_"));
+        let cfg=Config{database_url:url,api_bind:String::new(),sub_bind:String::new(),sub_public_url:"https://sub.example.test".into(),brand_name:"QA".into(),web_root:String::new(),sub_mode:"db".into(),panel_url:String::new(),sub_service_token:None};
+        let uid=9500000000+chrono::Utc::now().timestamp();let from=json!({"id":uid,"username":"qa_recovery"});
+        let client=ensure_client(&pool,&from).await?;
+        let payment:i64=sqlx::query_scalar("INSERT INTO payments(client_id,amount_minor,currency,provider,pay_url) VALUES($1,100,'USD','manual','https://cash.example.test/same') RETURNING id").bind(client).fetch_one(&pool).await?;
+        let (tg,server)=tg::transport_tests::mock(vec![json!({"ok":true,"result":{"message_id":10}});13]).await;
+        let reg=Registry::from_env();let settings=settings::BotSettings;
+        let callback=|data:&str|json!({"callback_query":{"id":data,"from":from,"message":{"chat":{"id":uid,"type":"private"},"message_id":10},"data":data}});
+        for data in ["renew","subchk","obsolete"] {handle(&tg,&pool,&reg,&cfg,&settings,&callback(data)).await?;}
+        for status in ["pending","canceled","failed","refunded"] {
+            sqlx::query("UPDATE payments SET status=$2::payment_status WHERE id=$1").bind(payment).bind(status).execute(&pool).await?;
+            check_payment(&tg,&pool,&reg,&cfg,uid,10,client,payment).await?;
+        }
+        // Expired pending invoice must not offer checkout; foreign IDs never reveal details.
+        sqlx::query("UPDATE payments SET status='pending',expires_at=now()-interval '1 day' WHERE id=$1").bind(payment).execute(&pool).await?;
+        check_payment(&tg,&pool,&reg,&cfg,uid,10,client,payment).await?;
+        check_payment(&tg,&pool,&reg,&cfg,uid,10,client+100000000,payment).await?;
+        check_payment(&tg,&pool,&reg,&cfg,uid,10,client,payment).await?;
+        let requests=server.await.unwrap();
+        for (index,id) in ["renew","subchk","obsolete"].iter().enumerate() {
+            assert_eq!(requests.iter().filter(|(path,body)|path.ends_with("answerCallbackQuery")&&body["callback_query_id"]==*id).count(),1);
+            assert!(requests[index*2].0.ends_with("answerCallbackQuery"));
+        }
+        assert!(requests[5].1["text"].as_str().unwrap().contains("устарела"));
+        assert!(requests[6].1["reply_markup"].to_string().contains("https://cash.example.test/same"));
+        for index in 7..=10 {assert!(!requests[index].1["reply_markup"].to_string().contains("https://cash.example.test/same"));}
+        assert!(requests[11].1["text"].as_str().unwrap().contains("не найден"));
+        let count:i64=sqlx::query_scalar("SELECT count(*) FROM payments WHERE client_id=$1").bind(client).fetch_one(&pool).await?;assert_eq!(count,1);
+        sqlx::query("UPDATE clients SET deleted_at=now() WHERE id=$1").bind(client).execute(&pool).await?;
+        Ok(())
+    }
+}
+
+#[cfg(test)] mod stars_receipt_tests {
+    use super::*;
+    use serde_json::json;
+    #[tokio::test]
+    #[ignore = "requires SN_TEST_DATABASE_URL pointing to an isolated sn_audit database"]
+    async fn stars_receipt_does_not_promise_active_access_for_disabled_client() -> Result<()> {
+        let url=std::env::var("SN_TEST_DATABASE_URL").expect("isolated DB required");
+        let pool=sn_core::db::connect(&url).await?;
+        let db:String=sqlx::query_scalar("SELECT current_database()").fetch_one(&pool).await?;assert!(db.starts_with("sn_audit_"));
+        let uid=9600000000+chrono::Utc::now().timestamp();let from=json!({"id":uid,"username":"qa_disabled_stars"});
+        let client=ensure_client(&pool,&from).await?;
+        sqlx::query("UPDATE clients SET status='disabled' WHERE id=$1").bind(client).execute(&pool).await?;
+        // Already applied receipt isolates presentation and verifies duplicate delivery preserves rights.
+        let payment:i64=sqlx::query_scalar("INSERT INTO payments(client_id,status,amount_minor,currency,provider) VALUES($1,'success',20,'XTR','stars') RETURNING id").bind(client).fetch_one(&pool).await?;
+        let (tg,server)=tg::transport_tests::mock(vec![json!({"ok":true,"result":{"message_id":10}})]).await;
+        let cfg=Config{database_url:url,api_bind:String::new(),sub_bind:String::new(),sub_public_url:String::new(),brand_name:"QA".into(),web_root:String::new(),sub_mode:"db".into(),panel_url:String::new(),sub_service_token:None};
+        let reg=Registry::from_env();let c=Ctx{tg:&tg,pool:&pool,reg:&reg,cfg:&cfg,s:settings::View::from_pairs(&[])};
+        on_message(&c,&json!({"chat":{"id":uid},"from":from,"successful_payment":{"invoice_payload":payment.to_string(),"total_amount":20,"currency":"XTR","telegram_payment_charge_id":format!("qa-disabled-{payment}")}})).await?;
+        let requests=server.await.unwrap();let text=requests[0].1["text"].as_str().unwrap();
+        assert!(text.contains("Оплата подтверждена"));assert!(!text.contains("Подписка активна"));assert!(text.contains("Моя подписка"));
+        let status:String=sqlx::query_scalar("SELECT status::text FROM clients WHERE id=$1").bind(client).fetch_one(&pool).await?;assert_eq!(status,"disabled");
+        sqlx::query("UPDATE clients SET deleted_at=now() WHERE id=$1").bind(client).execute(&pool).await?;
+        Ok(())
     }
 }

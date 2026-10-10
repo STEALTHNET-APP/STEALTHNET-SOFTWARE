@@ -138,7 +138,7 @@ function nodeRow(n){
     </div>
     <div class="nr-sub">
       <span class="nr-cpu">
-        <span class="label">CPU</span>
+        <span class="label">Нормализованная нагрузка</span>
         <div class="progress mini"><i style="width:${Math.min(100, cpu || 0)}%" class="${tone}"></i></div>
         <span class="num">${cpu == null ? '—' : cpu + '%'}</span>
       </span>
@@ -790,7 +790,7 @@ registerPage({
       <div class="actions"><button class="btn" id="nmRefresh">${I('refresh',14)} Обновить</button></div>
     </div>
     <div class="tbl-wrap"><table class="tbl readonly">
-      <thead><tr><th>Нода</th><th>CPU</th><th>Память</th><th>Приём</th><th>Отдача</th><th>Онлайн</th><th>Связь</th></tr></thead>
+      <thead><tr><th>Нода</th><th>Нормализованная нагрузка</th><th>Память</th><th>Приём</th><th>Отдача</th><th>Онлайн</th><th>Связь</th></tr></thead>
       <tbody>${DB.nodes.map(n=>{
         const off = n.status !== 'online';
         const cpu = n.cpu == null ? null : Math.round(n.cpu);

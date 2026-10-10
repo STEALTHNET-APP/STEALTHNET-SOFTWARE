@@ -6,7 +6,10 @@ pub async fn show(c:&Ctx<'_>,chat:i64,client:i64,mid:Option<i64>,selected:Option
     let items=catalog["items"].as_array().cloned().unwrap_or_default();
     let mut rows=Vec::new();
     let text=if let Some(id)=selected {
-        let pack=items.iter().find(|p|p["id"].as_i64()==Some(id)).ok_or_else(||Error::bad("пакет недоступен для текущей подписки"))?;
+        let Some(pack)=items.iter().find(|p|p["id"].as_i64()==Some(id)) else {
+            c.tg.screen(chat,mid,"Этот пакет больше недоступен для текущей подписки. Откройте актуальные пакеты.",None,Some(keyboard(vec![vec![Btn::Data("К пакетам".into(),"addons".into())],vec![Btn::Data("В меню".into(),"menu".into())]]))).await?;
+            return Ok(());
+        };
         for cur in [currency,"XTR"] {
             if cur=="XTR" && currency=="XTR" && !rows.is_empty(){continue;}
             let amount=if cur==currency {pack["amount_minor"].as_i64()} else {pack["stars_minor"].as_i64()};

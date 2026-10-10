@@ -525,9 +525,14 @@ fn render_servers(d: &SubData, lang: Language) -> String {
 
 fn render_app(a: &App, sub_url: &str, lang: Language) -> String {
     let deeplink = a.deeplink.as_ref().filter(|v| !v.is_empty()).map(|dl| {
-        dl.replace("{{URL}}", &urlencode(sub_url))
-            .replace("{URL}", &urlencode(sub_url))
-            .replace("{url}", &urlencode(sub_url))
+        let nested = if dl.starts_with("happ://add/") {
+            sub_url.to_owned()
+        } else {
+            urlencode(sub_url)
+        };
+        dl.replace("{{URL}}", &nested)
+            .replace("{URL}", &nested)
+            .replace("{url}", &nested)
     });
     let hint = if deeplink.is_some() {
         lang.text("Затем включите VPN в приложении.", "Then turn on VPN in the app.")
@@ -787,7 +792,7 @@ mod tests {
         app.store_url = Some("https://store".into());
         app.recommended = true;
         let html = render_app(&app, "https://sub.example/s/abc", Language::Ru);
-        assert!(html.contains("happ://add/https%3A%2F%2Fsub.example%2Fs%2Fabc"));
+        assert!(html.contains("happ://add/https://sub.example/s/abc"));
         assert!(html.contains("Установить Happ"));
         assert_eq!(html.matches("step-number").count(), 2);
         assert!(html.contains("Затем включите VPN в приложении"));
@@ -882,5 +887,55 @@ mod tests {
         assert_eq!(humanize_days(60, Language::Ru), "осталось ~2 месяца");
         assert_eq!(humanize_days(180, Language::Ru), "осталось ~6 месяцев");
         assert_eq!(humanize_days(31, Language::Ru), "осталось ~1 месяц");
+    }
+
+    #[test]
+    fn sn_b07_happ_preserves_nested_https_and_html_escaping() {
+        for lang in [Language::Ru,Language::En] {
+            for placeholder in ["{url}","{URL}","{{URL}}"] {
+                for url in ["https://sub.example.test/s/fixture","https://sub.example.test/s/fixture?a=1&label=\"VPN\"&q='x'"] {
+                    let mut a=app("Happ");a.deeplink=Some(format!("happ://add/{placeholder}"));
+                    let html=render_app(&a,url,lang);
+                    assert!(html.contains(&format!("href=\"{}\"",esc(&format!("happ://add/{url}")))),"Happ must keep the nested HTTPS URL: {html}");
+                    assert!(!html.contains("happ://add/https%3A"));
+                }
+            }
+        }
+    }
+    #[test]
+    fn sn_b07_other_schemes_keep_percent_encoding() {
+        let url="https://sub.example.test/s/fixture?a=1&b=2";
+        for scheme in ["hiddify://import/","v2rayng://install-config?url=","happ://other/"] {
+            for placeholder in ["{url}","{URL}","{{URL}}"] {
+                let mut a=app("Other app");a.deeplink=Some(format!("{scheme}{placeholder}"));
+                for lang in [Language::Ru,Language::En] {
+                    let html=render_app(&a,url,lang);
+                    assert!(html.contains(&format!("href=\"{}\"",esc(&format!("{scheme}{}",urlencode(url))))));
+                }
+            }
+        }
+    }
+    #[test]
+    fn sn_b07_whole_page_keeps_subscription_url_and_languages() {
+        let sub=SubData{
+            external_squad:serde_json::json!({}),username:"fixture".into(),status:"active".into(),
+            expires_at:None,used:0,limit:None,device_limit:1,tariff:None,
+            hosts:vec![crate::formats::HostEntry {
+                remark:"Synthetic host".into(),address:"vpn.example.test".into(),port:443,
+                protocol:"vless".into(),network:"tcp".into(),security:"reality".into(),
+                sni:None,fingerprint:None,alpn:None,path:None,public_key:None,
+                short_id:None,method:None,service_name:None,server_key:None,
+                host_header:None,options:serde_json::json!({}),
+                uuid:"00000000-0000-0000-0000-000000000001".into(),
+            }],
+        };
+        let mut apps=vec![app("Happ")];let settings=PageSettings::default();
+        let url="https://sub.example.test/s/fixture?a=1&b=2";
+        for a in &mut apps {a.deeplink=Some("happ://add/{{URL}}".into());}
+        for lang in [Language::Ru,Language::En] {
+            let html=render_localized(&sub,"QA",url,&apps,&settings,"",lang);
+            assert!(html.contains("happ://add/https://sub.example.test/s/fixture?a=1&amp;b=2"));
+            assert!(!html.contains("happ://add/https%3A"));
+        }
     }
 }

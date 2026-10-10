@@ -2,6 +2,8 @@
 use crate::{bot_config as bc,Error,Pool,Result};
 use serde_json::{json,Value,Map};
 use sqlx::Row;
+#[path="alerts_load.rs"]
+mod load;
 
 pub fn destination(s:&Map<String,Value>)->Result<(String,Option<i64>)> {
     let chat=bc::text(s,"bot.alert_chat_id","");
@@ -71,13 +73,17 @@ pub async fn scan_nodes(pool:&Pool)->Result<()> {
     let rows=sqlx::query("SELECT n.id,n.name,n.engine_ok,n.status::text AS status,COALESCE(n.last_seen_at<nOW()-interval '3 minutes',n.created_at<now()-interval '10 minutes') AS stale,m.cpu_percent,m.ram_percent FROM nodes n LEFT JOIN LATERAL(SELECT cpu_percent,ram_percent FROM node_metrics WHERE node_id=n.id AND at>now()-interval '5 minutes' ORDER BY at DESC LIMIT 1)m ON true WHERE n.deleted_at IS NULL AND n.notify AND n.status::text<>'disabled'").fetch_all(pool).await?;
     for row in rows {
         let stale:bool=row.get("stale");let engine:bool=row.get("engine_ok");
-        let cpu=row.try_get::<Option<f32>,_>("cpu_percent").ok().flatten().unwrap_or(0.0);let ram=row.try_get::<Option<f32>,_>("ram_percent").ok().flatten().unwrap_or(0.0);
+        let cpu=row.try_get::<Option<f32>,_>("cpu_percent").ok().flatten();let ram=row.try_get::<Option<f32>,_>("ram_percent").ok().flatten();
         let problem=if stale {Some("Нет отчёта агента более трёх минут")}else if !engine{Some("Агент сообщает об ошибке VPN-движка")}else{None};
         let id:i64=row.get("id");let title=format!("Нода {}",row.get::<String,_>("name"));
         incident(pool,&format!("node:{id}"),&title,problem).await?;
         let previous:Option<String>=sqlx::query_scalar("SELECT problem FROM service_incidents WHERE key=$1").bind(format!("load:{id}")).fetch_optional(pool).await?.flatten();
-        let overloaded=cpu>=95.0||ram>=95.0||(previous.is_some()&&(cpu>=85.0||ram>=85.0));
-        incident(pool,&format!("load:{id}"),&title,if !stale&&overloaded{Some("Нагрузка CPU или памяти выше 95%. Восстановление — ниже 85%.")}else{None}).await?;
+        // Missing/stale metrics cannot prove recovery. Keep the durable incident unchanged.
+        if let Some(overloaded)=load::load_observation(stale,cpu,ram,previous.is_some()) {
+            // Preserve the active detail to avoid a new notification solely after a wording upgrade.
+            let detail=previous.as_deref().unwrap_or("Нормализованная нагрузка (load average / число CPU) или память от 95%. Это не CPU utilization. Восстановление — ниже 85%.");
+            incident(pool,&format!("load:{id}"),&title,if overloaded{Some(detail)}else{None}).await?;
+        }
     }
     Ok(())
 }

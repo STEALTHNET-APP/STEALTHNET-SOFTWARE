@@ -36,7 +36,7 @@ impl Hosted {
         if req.amount_minor<=0 || !self.currencies().contains(&req.currency){return Err(Error::bad("валюта или сумма не поддерживается платёжным модулем"));}
         let amount=crate::minor_to_units(req.amount_minor,&req.currency);
         let order=format!("sn-{}",req.payment_id);
-        let return_url=self.cfg.get("return_url");
+        let return_url=req.return_url.clone().or_else(||self.cfg.get("return_url"));
         let mut body=match self.kind {
             Gateway::Platega=>json!({"paymentDetails":{"amount":serde_json::from_str::<Value>(&amount).map_err(|_|Error::bad("сумма"))?,"currency":req.currency},"description":req.description,"payload":order,"metadata":{"userId":req.telegram_id.unwrap_or(req.client_id).to_string()}}),
             Gateway::RollyPay=>{
@@ -87,6 +87,7 @@ fn text<'a>(v:&'a Value,key:&str)->Result<&'a str>{v.get(key).and_then(Value::as
 pub(super) fn amount_minor(v:&Value)->Result<i64>{
     let raw=match v {Value::String(s)=>s.clone(),Value::Number(n)=>n.to_string(),_=>return Err(Error::bad("нет суммы платежа"))};
     let (whole,fraction)=raw.split_once('.').unwrap_or((&raw,""));
+    let fraction=fraction.trim_end_matches('0');
     if whole.is_empty() || !whole.bytes().all(|b|b.is_ascii_digit()) || fraction.len()>2 || !fraction.bytes().all(|b|b.is_ascii_digit()){return Err(Error::bad("некорректная сумма платежа"));}
     let w=whole.parse::<i64>().map_err(|_|Error::bad("сумма слишком велика"))?;
     let f=if fraction.is_empty(){0}else{fraction.parse::<i64>().map_err(|_|Error::bad("сумма"))? * if fraction.len()==1{10}else{1}};
@@ -202,6 +203,41 @@ mod tests {
         let p=configured(Gateway::RollyPay);let mut v=notification(Gateway::RollyPay);v["test"]=json!(true);let b=serde_json::to_vec(&v).unwrap();assert!(p.handle_webhook(&signed_headers(Gateway::RollyPay,&v,&b),&b).await.is_err());
         let mut v=notification(Gateway::ParityPay);v["shop_id"]=json!("different");let b=serde_json::to_vec(&v).unwrap();assert!(configured(Gateway::ParityPay).handle_webhook(&signed_headers(Gateway::ParityPay,&v,&b),&b).await.is_err());
     }
+    fn return_url_cases()->[(Gateway,&'static str,[&'static str;2]);4] {
+        [
+            (Gateway::Platega,"RUB",["return","failedUrl"]),
+            (Gateway::RollyPay,"RUB",["success_redirect_url","fail_redirect_url"]),
+            (Gateway::RollyPay,"EUR",["success_redirect_url","fail_redirect_url"]),
+            (Gateway::ParityPay,"RUB",["success_url","fail_url"]),
+        ]
+    }
+    #[test] fn invoice_return_url_prefers_request_over_provider_default(){
+        for (kind,currency,fields) in return_url_cases() {
+            for default in [Some("https://service.example/app/"),None] {
+                let provider=configured(kind);
+                if let Some(url)=default {let mut cfg=provider.cfg.snapshot();cfg.insert("return_url".into(),json!(url));provider.cfg.replace(cfg);}
+                let req=InvoiceRequest{payment_id:77,client_id:5,telegram_id:None,amount_minor:17500,currency:currency.into(),description:"Test plan".into(),return_url:Some("https://cabinet.example/#payments".into())};
+                let body=provider.body(&req).unwrap();
+                for field in fields {assert_eq!(body[field],json!("https://cabinet.example/#payments"),"{kind:?} {currency} {field}, configured default: {default:?}");}
+            }
+        }
+    }
+    #[test] fn invoice_return_url_falls_back_to_provider_default(){
+        for (kind,currency,fields) in return_url_cases() {
+            let provider=configured(kind);
+            let mut cfg=provider.cfg.snapshot();cfg.insert("return_url".into(),json!("https://service.example/app/"));provider.cfg.replace(cfg);
+            let req=InvoiceRequest{payment_id:77,client_id:5,telegram_id:Some(11),amount_minor:17500,currency:currency.into(),description:"Test plan".into(),return_url:None};
+            let body=provider.body(&req).unwrap();
+            for field in fields {assert_eq!(body[field],json!("https://service.example/app/"),"{kind:?} {currency} {field}");}
+        }
+    }
+    #[test] fn invoice_return_url_is_omitted_when_unset(){
+        for (kind,currency,fields) in return_url_cases() {
+            let req=InvoiceRequest{payment_id:77,client_id:5,telegram_id:Some(11),amount_minor:17500,currency:currency.into(),description:"Test plan".into(),return_url:None};
+            let body=configured(kind).body(&req).unwrap();
+            for field in fields {assert!(body.get(field).is_none(),"{kind:?} {currency}: unexpected {field}");}
+        }
+    }
     #[test] fn decimal_and_invoice_contracts(){
         for (v,n) in [(json!("19.99"),1999),(json!(19.9),1990),(json!("0.01"),1),(json!(1200),120000)]{assert_eq!(amount_minor(&v).unwrap(),n);}
         for v in [json!("19.999"),json!("-1"),json!("NaN"),json!("1e9"),Value::Null,json!("999999999999999999999")]{assert!(amount_minor(&v).is_err());}
@@ -229,5 +265,137 @@ mod tests {
             let requests=server.await.unwrap();let (post_path,get_path,header)=match kind {Gateway::Platega=>("/v2/transaction/process","/transaction/tx-123","x-merchantid:"),Gateway::RollyPay=>("/api/v1/payments","/api/v1/payments/tx-123","x-nonce:"),Gateway::ParityPay=>("/v2/invoice/create","/v2/invoice/status?id=tx-123","x-shopid:")};
             assert!(requests[0].starts_with(&format!("POST {post_path} ")));assert!(requests[1].starts_with(&format!("GET {get_path} ")));for r in &requests{assert!(r.to_lowercase().contains(header));}
         }
+    }
+
+    #[test]
+    fn sn_b05_exact_decimal_matrix() {
+        for (raw,expected) in [("0",0),("0.00000000",0),("19.9",1990),("19.990",1999),("19.99000000",1999),("0.01000000",1),("1.00000000",100),("92233720368547758.07000000",i64::MAX)] {
+            assert_eq!(amount_minor(&json!(raw)).unwrap(),expected,"{raw}");
+        }
+        for (raw,expected) in [("0.00000000",0),("19.99000000",1999),("19.90000000",1990)] {
+            assert_eq!(amount_minor(&serde_json::from_str::<Value>(raw).unwrap()).unwrap(),expected);
+        }
+    }
+    #[test]
+    fn sn_b05_reject_fractional_cents_and_overflow() {
+        for raw in ["19.99900000","0.00000001","-1","-0.00","+1"," 1","1e2","1..00",".01","NaN","92233720368547758.08","9223372036854775808.00","1.00x00"] {
+            assert!(amount_minor(&json!(raw)).is_err(),"{raw}");
+        }
+        for v in [Value::Null,json!(-1),json!(19.999),json!(true)] {assert!(amount_minor(&v).is_err());}
+    }
+    #[tokio::test]
+    async fn sn_b05_signed_statuses_keep_authentication() {
+        let p=configured(Gateway::RollyPay);
+        for (status,expected) in [("created",PaymentStatus::Pending),("processing",PaymentStatus::Pending),("paid",PaymentStatus::Success),("expired",PaymentStatus::Canceled),("canceled",PaymentStatus::Canceled)] {
+            let mut v=notification(Gateway::RollyPay);v["amount"]=json!("19.99000000");v["status"]=json!(status);
+            let b=serde_json::to_vec(&v).unwrap();let h=signed_headers(Gateway::RollyPay,&v,&b);
+            let out=p.handle_webhook(&h,&b).await.unwrap();assert_eq!(out.status,expected);assert_eq!(out.amount_minor,Some(1999));
+            assert!(p.handle_webhook(&HashMap::new(),&b).await.is_err());
+            let mut bad=v.clone();bad["amount"]=json!("29.99000000");assert!(p.handle_webhook(&h,&serde_json::to_vec(&bad).unwrap()).await.is_err());
+            bad=v.clone();bad["currency"]=json!("USD");let bytes=serde_json::to_vec(&bad).unwrap();assert!(p.handle_webhook(&signed_headers(Gateway::RollyPay,&bad,&bytes),&bytes).await.is_err());
+        }
+    }
+    #[tokio::test]
+    async fn sn_b05_poll_exact_amount_over_loopback() {
+        use tokio::io::{AsyncReadExt,AsyncWriteExt};
+        let listener=tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();let addr=listener.local_addr().unwrap();
+        let server=tokio::spawn(async move {
+            let (mut s,_)=listener.accept().await.unwrap();let mut raw=vec![];let mut buf=[0;4096];
+            while !raw.windows(4).any(|x|x==b"\r\n\r\n") {let n=s.read(&mut buf).await.unwrap();assert!(n>0);raw.extend_from_slice(&buf[..n]);}
+            let body=json!({"payment_id":"pay-test","order_id":"sn-77","amount":"19.99000000","payment_currency":"RUB","status":"paid"}).to_string();
+            s.write_all(format!("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",body.len()).as_bytes()).await.unwrap();
+            assert!(String::from_utf8(raw).unwrap().starts_with("GET /api/v1/payments/pay-test "));
+        });
+        let mut p=configured(Gateway::RollyPay);p.base=format!("http://{addr}");
+        let result=p.poll_outcome("pay-test").await;server.await.unwrap();let out=result.unwrap().unwrap();assert_eq!(out.amount_minor,Some(1999));assert_eq!(out.payment_id,Some(77));
+    }
+    #[tokio::test]
+    #[ignore = "Requires isolated SN_TEST_DATABASE_URL; local synthetic notifications only"]
+    async fn sn_b05_repeated_notification_preserves_invoice_and_term() {
+        let url=std::env::var("SN_TEST_DATABASE_URL").expect("isolated database required");let pool=sn_core::db::connect(&url).await.unwrap();
+        let name:String=sqlx::query_scalar("SELECT current_database()").fetch_one(&pool).await.unwrap();assert!(name.starts_with("sn_audit_"));
+        let tag=uuid::Uuid::new_v4().to_string();let tariff:i64=sqlx::query_scalar("SELECT id FROM tariffs WHERE code='CLOUD_AUDIT_PAID'").fetch_one(&pool).await.unwrap();
+        let client:i64=sqlx::query_scalar("INSERT INTO clients(username,short_id) VALUES('sn_b05_fixture',$1) RETURNING id").bind(&tag).fetch_one(&pool).await.unwrap();
+        sqlx::query("INSERT INTO subscriptions(client_id,tariff_id,expires_at) VALUES($1,$2,now())").bind(client).bind(tariff).execute(&pool).await.unwrap();
+        let id:i64=sqlx::query_scalar("INSERT INTO payments(client_id,tariff_id,kind,status,amount_minor,currency,period_days,provider,provider_txid) VALUES($1,$2,'renewal','pending',1999,'RUB',30,'rollypay',$3) RETURNING id").bind(client).bind(tariff).bind(&tag).fetch_one(&pool).await.unwrap();
+        let mut v=notification(Gateway::RollyPay);v["order_id"]=json!(format!("sn-{id}"));v["payment_id"]=json!(&tag);v["amount"]=json!("19.99000000");
+        let p=configured(Gateway::RollyPay);let bytes=serde_json::to_vec(&v).unwrap();let mut out=p.handle_webhook(&signed_headers(Gateway::RollyPay,&v,&bytes),&bytes).await.unwrap();
+        let reg=crate::Registry::from_env();reg.sync_to_db(&pool).await.unwrap();
+        out.amount_minor=Some(1998);assert!(reg.apply_outcome(&pool,"rollypay",&out).await.is_err());
+        out.amount_minor=Some(1999);out.currency=Some("EUR".into());assert!(reg.apply_outcome(&pool,"rollypay",&out).await.is_err());
+        out.currency=Some("RUB".into());out.provider_txid=Some("wrong-invoice".into());assert!(reg.apply_outcome(&pool,"rollypay",&out).await.is_err());
+        out.provider_txid=Some(tag.clone());reg.apply_outcome(&pool,"rollypay",&out).await.unwrap();
+        let expiry:chrono::DateTime<chrono::Utc>=sqlx::query_scalar("SELECT expires_at FROM subscriptions WHERE client_id=$1 AND is_current").bind(client).fetch_one(&pool).await.unwrap();
+        reg.apply_outcome(&pool,"rollypay",&out).await.unwrap();
+        let after:chrono::DateTime<chrono::Utc>=sqlx::query_scalar("SELECT expires_at FROM subscriptions WHERE client_id=$1 AND is_current").bind(client).fetch_one(&pool).await.unwrap();assert_eq!(expiry,after);
+        let n:i64=sqlx::query_scalar("SELECT count(*) FROM payments WHERE client_id=$1 AND status='success'").bind(client).fetch_one(&pool).await.unwrap();assert_eq!(n,1);
+        println!("SN-B05 real DB: signed decimal notification settled once; amount/currency/invoice guards and duplicate term preserved");
+    }
+
+    #[tokio::test]
+    #[ignore = "Requires SN_COMBINED_FIXTURE pointing to isolated real API, database and synthetic web account"]
+    async fn combined_amount_http_notification_and_return_contract() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let fixture: Value = serde_json::from_slice(&std::fs::read(
+            std::env::var("SN_COMBINED_FIXTURE").expect("combined fixture must be configured")
+        ).unwrap()).unwrap();
+        let db_url=fixture["database_url"].as_str().unwrap();
+        let pool=sn_core::db::connect(db_url).await.unwrap();
+        let db_name:String=sqlx::query_scalar("SELECT current_database()").fetch_one(&pool).await.unwrap();
+        assert!(db_name.starts_with("sn_audit_r3_web_"));
+        let api=fixture["api_url"].as_str().unwrap();assert!(api.starts_with("http://127.0.0.1:"));
+        let web_return=format!("{}/#payments",fixture["cabinet_url"].as_str().unwrap());
+        let tariff=fixture["tariff_id"].as_i64().unwrap();
+        let http=reqwest::Client::new();let mut proofs=vec![];
+        for channel in ["web","bot","miniapp"] {
+            let tag=uuid::Uuid::new_v4().simple().to_string();
+            let client=if channel=="web" {fixture["web_client_id"].as_i64().unwrap()} else {
+                let id:i64=sqlx::query_scalar("INSERT INTO clients(username,short_id) VALUES($1,$2) RETURNING id").bind(format!("combined_{channel}")).bind(&tag).fetch_one(&pool).await.unwrap();
+                sqlx::query("INSERT INTO subscriptions(client_id,tariff_id) VALUES($1,$2)").bind(id).bind(tariff).execute(&pool).await.unwrap();id
+            };
+            sqlx::query("UPDATE subscriptions SET expires_at=now()+interval '1 day',tariff_id=$2 WHERE client_id=$1 AND is_current").bind(client).bind(tariff).execute(&pool).await.unwrap();
+            let before:chrono::DateTime<chrono::Utc>=sqlx::query_scalar("SELECT expires_at FROM subscriptions WHERE client_id=$1 AND is_current").bind(client).fetch_one(&pool).await.unwrap();
+            let payment:i64=sqlx::query_scalar("INSERT INTO payments(client_id,tariff_id,kind,status,amount_minor,currency,period_days,provider) VALUES($1,$2,'renewal','pending',1999,'RUB',30,'rollypay') RETURNING id").bind(client).bind(tariff).fetch_one(&pool).await.unwrap();
+            let listener=tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();let addr=listener.local_addr().unwrap();
+            let response=json!({"payment_id":tag,"pay_url":"https://checkout.example.test/synthetic"}).to_string();
+            let server=tokio::spawn(async move {
+                let (mut stream,_)=listener.accept().await.unwrap();let mut raw=vec![];let mut buf=[0;4096];
+                loop {let n=stream.read(&mut buf).await.unwrap();assert!(n>0);raw.extend_from_slice(&buf[..n]);
+                    if let Some(at)=raw.windows(4).position(|x|x==b"\r\n\r\n") {
+                        let h=String::from_utf8_lossy(&raw[..at]);let size=h.lines().find_map(|x|x.to_lowercase().strip_prefix("content-length:").and_then(|n|n.trim().parse::<usize>().ok())).unwrap();
+                        if raw.len()>=at+4+size {break;}
+                    }
+                }
+                assert!(raw.starts_with(b"POST /api/v1/payments HTTP/1.1\r\n"));
+                let at=raw.windows(4).position(|x|x==b"\r\n\r\n").unwrap();let body:Value=serde_json::from_slice(&raw[at+4..]).unwrap();
+                stream.write_all(format!("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{response}",response.len()).as_bytes()).await.unwrap();body
+            });
+            let mut p=configured(Gateway::RollyPay);p.base=format!("http://{addr}");
+            let fallback=if channel=="bot" {"https://t.me/synthetic_test_bot"} else {"https://miniapp.example.test/app/"};
+            let mut cfg=p.cfg.snapshot();cfg.insert("return_url".into(),json!(fallback));p.cfg.replace(cfg);
+            let req=InvoiceRequest{payment_id:payment,client_id:client,telegram_id:if channel=="web"{None}else{Some(424242)},amount_minor:1999,currency:"RUB".into(),description:"Combined synthetic renewal".into(),return_url:if channel=="web"{Some(web_return.clone())}else{None}};
+            let invoice=p.create_invoice(&req).await.unwrap();assert_eq!(invoice.external_id.as_deref(),Some(tag.as_str()));
+            let captured=server.await.unwrap();let expected_return=if channel=="web"{web_return.as_str()}else{fallback};
+            assert_eq!(captured["amount"],"19.99");assert_eq!(captured["order_id"],format!("sn-{payment}"));
+            for field in ["success_redirect_url","fail_redirect_url"]{assert_eq!(captured[field],expected_return);}
+            sqlx::query("UPDATE payments SET provider_txid=$2,pay_url=$3 WHERE id=$1").bind(payment).bind(&tag).bind(&invoice.pay_url).execute(&pool).await.unwrap();
+            let mut notification=notification(Gateway::RollyPay);notification["payment_id"]=json!(tag);notification["order_id"]=json!(format!("sn-{payment}"));notification["amount"]=json!("19.99000000");
+            let bytes=serde_json::to_vec(&notification).unwrap();let headers=signed_headers(Gateway::RollyPay,&notification,&bytes);
+            let url=format!("{api}/api/pay/webhook/rollypay");
+            let send=|data:Vec<u8>,signed:HashMap<String,String>| {let mut r=http.post(&url).header("Content-Type","application/json").body(data);for (k,v) in signed {r=r.header(k,v);}r.send()};
+            let bad=send(bytes.clone(),HashMap::new()).await.unwrap();assert!(!bad.status().is_success());
+            let mut wrong=notification.clone();wrong["amount"]=json!("19.98000000");let wrong_bytes=serde_json::to_vec(&wrong).unwrap();
+            assert!(!send(wrong_bytes.clone(),signed_headers(Gateway::RollyPay,&wrong,&wrong_bytes)).await.unwrap().status().is_success());
+            let unchanged:chrono::DateTime<chrono::Utc>=sqlx::query_scalar("SELECT expires_at FROM subscriptions WHERE client_id=$1 AND is_current").bind(client).fetch_one(&pool).await.unwrap();assert_eq!(before,unchanged);
+            let first=send(bytes.clone(),headers.clone()).await.unwrap();assert!(first.status().is_success(),"valid exact amount rejected: {}",first.status());assert_eq!(first.json::<Value>().await.unwrap()["ok"],true);
+            let once:chrono::DateTime<chrono::Utc>=sqlx::query_scalar("SELECT expires_at FROM subscriptions WHERE client_id=$1 AND is_current").bind(client).fetch_one(&pool).await.unwrap();assert_eq!(once,before+chrono::Duration::days(30));
+            let (a,b,c)=tokio::join!(send(bytes.clone(),headers.clone()),send(bytes.clone(),headers.clone()),send(bytes.clone(),headers.clone()));
+            for response in [a,b,c]{assert!(response.unwrap().status().is_success());}
+            let after:chrono::DateTime<chrono::Utc>=sqlx::query_scalar("SELECT expires_at FROM subscriptions WHERE client_id=$1 AND is_current").bind(client).fetch_one(&pool).await.unwrap();assert_eq!(after,once);
+            let rows:Vec<(i64,String,i64)>=sqlx::query_as("SELECT id,status::text,amount_minor FROM payments WHERE client_id=$1 ORDER BY id").bind(client).fetch_all(&pool).await.unwrap();assert_eq!(rows,vec![(payment,"success".to_string(),1999)]);
+            proofs.push(json!({"channel":channel,"client_id":client,"payment_id":payment,"request_amount":captured["amount"],"notification_amount":"19.99000000","return_url":expected_return,"before":before,"after_first":once,"after_three_concurrent_repeats":after,"payment_rows":1,"signature_and_wrong_amount_rejected":true}));
+        }
+        std::fs::write(fixture["proof_file"].as_str().unwrap(),serde_json::to_vec_pretty(&json!({"cases":proofs,"provider_transport":"loopback Hosted create_invoice mock","notification_transport":"real HTTP API webhook","invoice_database_setup":"synthetic pending row; checkout API creation itself not exercised"})).unwrap()).unwrap();
+        println!("COMBINED FLOW COMPLETE: web override, bot/Mini App fallback, local invoice create, signed real HTTP notification, 30 days once, 3 concurrent repeats, one invoice per account");
     }
 }

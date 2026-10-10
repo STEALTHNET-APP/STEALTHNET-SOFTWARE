@@ -507,7 +507,7 @@ function buySheet(id, selectedPeriod) {
     const methods = paymentOptions(shop, t, period, currency);
     const box = dialog.querySelector("#payActions");
     if (!box) return;
-    box.innerHTML = CT.html`<p class="checkout-total">К оплате <strong>${money(quote?.amount_minor ?? price.amount_minor, currency)}</strong></p>${quote && quote.days !== period ? CT.html`<p>Срок с бонусом: ${quote.days} дн.</p>` : ""}${price.amount_minor === 0 ? CT.html('<button class="btn" data-pay="free">Получить бесплатно</button>') : methods.length ? methods.map((m) => `<button class="btn ${m.currency !== currency ? "line" : ""}" data-pay="${esc(m.id)}" ${methodQuotes[m.currency]?.error ? "disabled" : ""}>${m.currency === "XTR" ? CT.html("Оплатить ") + money(methodQuotes.XTR?.amount_minor ?? m.amount_minor, "XTR") : CT.html("Оплатить · ") + esc(m.title)}</button>${methodQuotes[m.currency]?.error ? `<p class="note">${esc(methodQuotes[m.currency].error)}</p>` : ""}`).join("") : CT.html('<div class="warn-box">Оплата временно недоступна. Напишите в поддержку — вам помогут с подключением.</div>')}`;
+    box.innerHTML = CT.html`<p class="checkout-total">К оплате <strong>${money(quote?.amount_minor ?? price.amount_minor, currency)}</strong></p>${quote && quote.days !== period ? CT.html`<p>Срок с бонусом: ${quote.days} дн.</p>` : ""}${price.amount_minor === 0 ? CT.html('<button class="btn" data-pay="free">Получить бесплатно</button>') : methods.length ? methods.map((m) => `<button class="btn ${m.currency !== currency ? "line" : ""}" data-pay="${esc(m.id)}" ${methodQuotes[m.currency]?.error ? "disabled" : ""}>${!methodQuotes[m.currency]?.error && (methodQuotes[m.currency]?.amount_minor ?? m.amount_minor) === 0 ? CT.html("Активировать бесплатно") : m.currency === "XTR" ? CT.html("Оплатить ") + money(methodQuotes.XTR?.amount_minor ?? m.amount_minor, "XTR") : CT.html("Оплатить · ") + esc(m.title)}</button>${methodQuotes[m.currency]?.error ? `<p class="note">${esc(methodQuotes[m.currency].error)}</p>` : ""}`).join("") : CT.html('<div class="warn-box">Оплата временно недоступна. Напишите в поддержку — вам помогут с подключением.</div>')}`;
     box
       .querySelectorAll("[data-pay]")
       .forEach((b) => (b.onclick = () => pay(b.dataset.pay)));
@@ -616,11 +616,12 @@ function buySheet(id, selectedPeriod) {
         checkPayment(invoice.payment_id, dialog.querySelector("#checkInvoice"));
       if (safeURL(invoice.url)) openInvoice(invoice);
     } catch (e) {
+      const message = CT.html("Не удалось подтвердить результат оформления. Проверьте историю платежей и статус подписки. Если результат неясен, обратитесь в поддержку перед новой оплатой.");
       if (checkoutPane.isConnected && dialog.open) {
         dialog.querySelector("#payError").classList.add("is-error");
-        dialog.querySelector("#payError").textContent = e.message;
+        dialog.querySelector("#payError").textContent = message;
       }
-      else notice(e.message);
+      else notice(message);
     } finally {
       busy = false;
       controls.forEach(b => b.disabled = false);
@@ -686,7 +687,7 @@ async function drawPayments(n, offset = 0) {
     r.items
       .map(
         (p) =>
-          `<div class="record"><div class="record-top"><strong>${esc(p.title || CT.html("Оплата подписки"))}</strong><span class="state ${p.status === "success" ? "good" : ""}">${esc(statusLabel[p.status] || p.status)}</span></div><p>${money(p.amount_minor, p.currency)} · ${date(p.created_at)} · №${p.id}</p>${p.instructions && p.status === "pending" ? `<p class="instruction-text">${esc(p.instructions)}</p>` : ""}${safeURL(p.url) ? CT.html`<button class="btn" data-invoice="${p.id}">Продолжить оплату</button>` : ""}${["pending", "failed"].includes(p.status) ? CT.html`<button class="btn line" data-check="${p.id}">Проверить оплату</button>` : ""}</div>`,
+          `<div class="record"><div class="record-top"><strong>${esc(p.title || CT.html("Оплата подписки"))}</strong><span class="state ${p.status === "success" ? "good" : ""}">${esc(statusLabel[p.status] || p.status)}</span></div><p>${money(p.amount_minor, p.currency)} · ${date(p.created_at)} · №${p.id}</p>${p.instructions && p.status === "pending" ? `<p class="instruction-text">${esc(p.instructions)}</p>` : ""}${p.status === "pending" && safeURL(p.url) ? CT.html`<button class="btn" data-invoice="${p.id}">Продолжить оплату</button>` : ""}${p.status === "pending" ? CT.html`<button class="btn line" data-check="${p.id}">Проверить оплату</button>` : ""}</div>`,
       )
       .join("") ||
       (!offset ? CT.html('<div class="center">Платежей пока нет.</div>') : ""),
@@ -742,7 +743,7 @@ async function drawHelp(n, offset = 0) {
       .filter((d) => safeURL(d.url))
       .map(
         (d) =>
-          `<a class="document-link" href="${esc(safeURL(d.url))}" target="_blank" rel="noopener noreferrer"><span>${esc(d.label)}</span><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 17 17 7M7 7h10v10"/></svg></a>`,
+          `<a class="document-link" href="${esc(safeURL(d.url))}" target="_blank" rel="noopener noreferrer"><span>${esc(d.title)}</span><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 17 17 7M7 7h10v10"/></svg></a>`,
       )
       .join(
         "",
@@ -779,6 +780,7 @@ async function drawHelp(n, offset = 0) {
   );
   root.querySelector("#newTicket")?.addEventListener("click", () => {
     currentTicket = { new: true };
+    generation++;
     drawTicket(generation);
   });
   root.querySelector("#moreTickets")?.addEventListener("click", (e) => {
@@ -792,11 +794,12 @@ async function drawHelp(n, offset = 0) {
 async function drawTicket(n) {
   syncBack();
   let t = currentTicket;
+  const requestedTicket = t;
   if (!t) return;
   try {
     if (!t.new && !t.messages) {
       t = await api("/tickets/" + t.id);
-      if (n !== generation) return;
+      if (n !== generation || currentTicket !== requestedTicket) return;
       currentTicket = t;
     }
     const key = t.id || "new";
@@ -806,6 +809,7 @@ async function drawTicket(n) {
       navigate("help");
     };
     const input = root.querySelector("#message");
+    const isCurrent = () => n === generation && currentTicket === t && root.querySelector("#message") === input;
     const counter = () => {
       drafts.set(key, input.value);
       root.querySelector("#count").textContent = input.value.length + " / 4000";
@@ -820,17 +824,19 @@ async function drawTicket(n) {
         const older = await api(
           "/tickets/" + t.id + "?before=" + t.messages[0].id,
         );
-        if (n !== generation) return;
+        if (!isCurrent()) return;
         t.messages = [...older.messages, ...t.messages];
         t.has_more = older.has_more;
         drawTicket(n);
       } catch (err) {
+        if (!isCurrent()) return;
         notice(err.message);
         e.target.disabled = false;
       }
     });
     root.querySelector("#sendMessage")?.addEventListener("click", async (e) => {
-      const body = input.value.trim();
+      const submittedDraft = input.value;
+      const body = submittedDraft.trim();
       if (!body) {
         input.focus();
         return;
@@ -839,18 +845,28 @@ async function drawTicket(n) {
       b.disabled = true;
       try {
         const r = await post("/tickets" + (t.new ? "" : "/" + t.id), { body });
+        if (!isCurrent()) return;
+        const ticketId = t.new ? r.id : t.id;
+        const editedDraft = input.value !== submittedDraft ? input.value : null;
         drafts.delete(key);
-        if (n !== generation) return;
-        currentTicket = { id: t.new ? r.id : t.id };
+        if (editedDraft !== null) drafts.set(ticketId, editedDraft);
+        currentTicket = { id: ticketId };
         await drawTicket(n);
-        notice(CT.html("Сообщение отправлено"));
+        if (n === generation && currentTicket?.id === (t.new ? r.id : t.id))
+          notice(CT.html("Сообщение отправлено"));
       } catch (err) {
-        root.querySelector("#ticketError").textContent = err.message;
+        if (!isCurrent()) return;
+        const error = root.querySelector("#ticketError");
+        if (error) error.textContent = err.message;
         b.disabled = false;
       }
     });
   } catch (e) {
-    if (n === generation) errorBox(e, () => drawTicket(n));
+    if (n === generation && currentTicket === requestedTicket) {
+      errorBox(e, () => drawTicket(n));
+      root.insertAdjacentHTML("afterbegin", CT.html('<button class="small-btn back-btn" id="ticketBack">← К обращениям</button>'));
+      root.querySelector("#ticketBack").onclick = () => { currentTicket = null; navigate("help"); };
+    }
   }
 }
 tg?.ready?.();

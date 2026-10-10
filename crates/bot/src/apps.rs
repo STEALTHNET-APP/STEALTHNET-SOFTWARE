@@ -94,17 +94,10 @@ pub async fn show_apps(
         }
         text.push('\n');
 
-        // Две кнопки на приложение: поставить и сразу добавить подписку.
-        //
-        // Глубокая ссылка подставляет подписку в уже установленное
-        // приложение. Собирается на месте: заранее её не сохранить,
-        // потому что она зависит от конкретного клиента.
+        // Telegram buttons use HTTPS; custom imports remain on the subscription page.
         let mut row = Vec::new();
-        if let Some(store) = a.get::<Option<String>, _>("store_url").filter(|s| !s.is_empty()) {
+        if let Some(store) = a.get::<Option<String>, _>("store_url").filter(|s| sn_core::bot_config::web_url(s,true)) {
             row.push(Btn::Url(format!("⬇️ {name}"), store));
-        }
-        if let Some(dl) = a.get::<Option<String>, _>("deeplink").filter(|s| !s.is_empty()) {
-            row.push(Btn::Url("➕ Добавить".into(), dl.replace("{url}", sub_url)));
         }
         if !row.is_empty() {
             rows.push(row);
@@ -120,6 +113,10 @@ pub async fn show_apps(
         // Ссылку даём отдельной строкой моноширинным: в Telegram по
         // нажатию она копируется целиком, и диктовать её не нужно.
         text.push_str(&format!("<code>{}</code>", esc(sub_url)));
+    }
+
+    if !apps.is_empty() && sn_core::bot_config::web_url(sub_url,true) {
+        rows.push(vec![Btn::Url("📖 Инструкция".into(),sub_url.to_owned())]);
     }
 
     rows.push(vec![Btn::Data("← К устройствам".into(), "apps".into())]);
@@ -149,5 +146,44 @@ mod tests {
     #[test]
     fn разметка_в_названиях_экранируется() {
         assert_eq!(esc("v2ray<N>"), "v2ray&lt;N&gt;");
+    }
+
+    #[tokio::test]
+    #[ignore = "Requires isolated SN_TEST_DATABASE_URL; Telegram is loopback capture only"]
+    async fn sn_b06_all_platforms_use_https_instructions_and_keep_catalog() {
+        use serde_json::json;
+        let url=std::env::var("SN_TEST_DATABASE_URL").expect("isolated database required");
+        let pool=sqlx::postgres::PgPoolOptions::new().max_connections(1).connect(&url).await.unwrap();
+        let name:String=sqlx::query_scalar("SELECT current_database()").fetch_one(&pool).await.unwrap();assert!(name.starts_with("sn_audit_"));
+        sqlx::query("CREATE TEMP TABLE subscription_page_apps (LIKE public.subscription_page_apps INCLUDING ALL)").execute(&pool).await.unwrap();
+        for (platform,_) in PLATFORMS {
+            for (name,store,active) in [("Fixture <Happ>",Some("https://store.example.test/app"),true),("No store",None,true),("Unsafe store",Some("happ://open"),true),("Hidden",Some("https://hidden.example.test"),false)] {
+                sqlx::query("INSERT INTO subscription_page_apps(platform,name,store_url,deeplink,guide,is_active) VALUES($1,$2,$3,'happ://add/{{URL}}','Use <code> & connect',$4)").bind(platform).bind(name).bind(store).bind(active).execute(&pool).await.unwrap();
+            }
+        }
+        let before:Vec<(String,String,Option<String>)>=sqlx::query_as("SELECT platform,name,deeplink FROM subscription_page_apps ORDER BY platform,name").fetch_all(&pool).await.unwrap();
+        let (tg,server)=crate::tg::transport_tests::mock(vec![json!({"ok":true,"result":{"message_id":10}});7]).await;
+        let reg=sn_payments::Registry::from_env();
+        let cfg=sn_core::config::Config{database_url:url,api_bind:String::new(),sub_bind:String::new(),sub_public_url:"https://sub.example.test".into(),brand_name:"QA".into(),web_root:String::new(),sub_mode:"db".into(),panel_url:"https://panel.example.test".into(),sub_service_token:None};
+        let c=Ctx{tg:&tg,pool:&pool,reg:&reg,cfg:&cfg,s:crate::settings::View::from_pairs(&[("bot.menu_layout",json!([{"id":"buy","enabled":false}]))])};
+        let sub="https://sub.example.test/s/fixture?a=1&b=2";
+        for (platform,_) in PLATFORMS {show_apps(&c,42,platform,sub,None).await.unwrap();}
+        show_apps(&c,42,"freebsd",sub,None).await.unwrap();
+        show_apps(&c,42,"ios","http://sub.example.test/s/fixture",None).await.unwrap();
+        let requests=server.await.unwrap();assert_eq!(requests.len(),7);
+        for (i,(_,body)) in requests.iter().enumerate() {
+            let buttons:Vec<_>=body["reply_markup"]["inline_keyboard"].as_array().unwrap().iter().flat_map(|x|x.as_array().unwrap()).collect();
+            let urls:Vec<_>=buttons.iter().filter_map(|x|x["url"].as_str()).collect();
+            assert!(urls.iter().all(|x|sn_core::bot_config::web_url(x,true)),"Unsupported inline URL for request {i}: {urls:?}");
+            assert!(buttons.iter().any(|x|x["callback_data"]=="apps"));
+            if i<5 {
+                assert_eq!(urls.iter().filter(|x|**x==sub).count(),1,"one HTTPS instruction action per screen");
+                assert_eq!(urls.iter().filter(|x|**x=="https://store.example.test/app").count(),1);
+                let text=body["text"].as_str().unwrap();assert!(text.contains("<code>https://sub.example.test/s/fixture?a=1&amp;b=2</code>"));assert!(text.contains("Fixture &lt;Happ&gt;"));assert!(!text.contains("Hidden"));
+            }
+            if i==5 {assert!(urls.is_empty());}
+        }
+        let after:Vec<(String,String,Option<String>)>=sqlx::query_as("SELECT platform,name,deeplink FROM subscription_page_apps ORDER BY platform,name").fetch_all(&pool).await.unwrap();assert_eq!(before,after);
+        println!("SN-B06: seven local Telegram requests; five platforms, missing/unsafe store, hidden app, no shop, empty platform; catalog deeplinks unchanged");
     }
 }

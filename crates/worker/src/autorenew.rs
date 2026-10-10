@@ -71,7 +71,7 @@ pub async fn tick(pool: &Pool, reg: &Registry, bot_token: Option<&str>) -> Resul
         if action_result != "charged" {
             if let (Some(token), Some(tg)) = (bot_token, telegram_id.as_deref()) {
                 if let Ok(chat_id) = tg.parse::<i64>() {
-                    notify(token, chat_id).await;
+                    notify(token, chat_id, r.get("expires_at")).await;
                 }
             }
         }
@@ -172,9 +172,9 @@ async fn try_renew(
     }
 }
 
-async fn notify(token: &str, chat_id: i64) {
-    let text = "⏳ Подписка заканчивается завтра.\n\n\
-                Автоматически продлить не получилось — продлите вручную: /buy";
+async fn notify(token: &str, chat_id: i64, expires: chrono::DateTime<chrono::Utc>) {
+    let text = format!("⏳ Подписка заканчивается {} UTC.\n\n\
+                Автоматически продлить не получилось — продлите вручную: /buy", expires.format("%d.%m.%Y %H:%M"));
     let _ = reqwest::Client::new()
         .post(format!("https://api.telegram.org/bot{token}/sendMessage"))
         .json(&json!({ "chat_id": chat_id, "text": text }))

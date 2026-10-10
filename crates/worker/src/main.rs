@@ -276,23 +276,15 @@ async fn notify_expiring(pool: &Pool, bot_token: &str, cfg: &Config) -> Result<(
 
             // Формулировка та же, что в кабинете: человеку приходит одно
             // и то же напоминание, откуда бы он ни смотрел.
-            let text = if days == 1 {
-                format!(
-                    "⏳ Доступ заканчивается завтра, {}.\n\n\
-                     Продлите заранее — так не прервётся доступ в интернет: /buy",
-                    expires.format("%d.%m")
-                )
-            } else {
-                format!(
-                    "📅 Доступ заканчивается через {days} {} — {}.\n\n\
-                     Продлите заранее — так не прервётся доступ в интернет: /buy",
-                    склонение(days, "день", "дня", "дней"),
-                    expires.format("%d.%m")
-                )
-            };
+            let text = format!(
+                "⏳ Доступ заканчивается {} UTC.\n\n\
+                 Продлите заранее — так не прервётся доступ в интернет: /buy",
+                expires.format("%d.%m.%Y %H:%M")
+            );
 
             let template=sn_core::bot_config::text(&settings,"bot.notify_text","");
-            let text=if template.is_empty() {text} else {template.replace("{days}",&days.to_string()).replace("{date}",&expires.format("%d.%m.%Y").to_string())};
+            let remaining_days=((expires-Utc::now()).num_seconds().max(0)+86399)/86400;
+            let text=if template.is_empty() {text} else {template.replace("{days}",&remaining_days.to_string()).replace("{date}",&expires.format("%d.%m.%Y %H:%M UTC").to_string())};
             let sent = send_message(bot_token, chat_id, &text).await;
 
             // Отметку ставим только при успешной отправке: иначе человек

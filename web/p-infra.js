@@ -856,56 +856,45 @@ function настроитьРедактор(root, p){
 /// проверяет сервер). Если их перепутать, подключение молча не встанет,
 /// поэтому подписываем каждое поле, куда именно его вставлять.
 function keygenModal(){
+  const en = LANG === 'en';
   openModal({
-    title:'Генератор ключей', sub:'X25519 для Reality', icon:'key',
+    title:en?'Key generator':'Генератор ключей', sub:'X25519 для Reality', icon:'key',
     body:`
       <div class="seg" style="margin-bottom:14px">
         <button class="on">X25519 · Reality</button>
       </div>
       <div id="kgBody">
-        <div class="empty">${I('key',32)}<b>Ключи ещё не сгенерированы</b>
-          <span>Нажмите кнопку ниже — панель создаст новую пару</span></div>
+        <div class="empty">${I('key',32)}<b>${en?'No keys generated yet':'Ключи ещё не сгенерированы'}</b>
+          <span>${en?'Generate a new pair using the button below':'Нажмите кнопку ниже — панель создаст новую пару'}</span></div>
       </div>
       <div class="hint" style="margin-top:12px;color:var(--warn-ink)">${I('alert',12)}
-        Смена ключей у работающего профиля отключит всех клиентов, пока они не
-        обновят подписку. Для нового профиля это безопасно.</div>`,
-    footer:`<div class="spacer"></div><button class="btn" data-close>Закрыть</button>
-            <button class="btn primary" data-gen>${I('key',13)} Сгенерировать пару</button>`,
+        ${en?'Changing keys on an active profile disconnects clients until they update their subscriptions.':'Смена ключей у работающего профиля отключит всех клиентов, пока они не обновят подписку.'}</div>`,
+    footer:`<div class="spacer"></div><button class="btn" data-close>${en?'Close':'Закрыть'}</button>
+            <button class="btn primary" data-gen>${I('key',13)} ${en?'Generate pair':'Сгенерировать пару'}</button>`,
     onMount(layer){
       layer.querySelector('[data-gen]').addEventListener('click', async ()=>{
         const btn = layer.querySelector('[data-gen]');
-        btn.disabled = true; btn.textContent = 'Генерируем…';
+        btn.disabled = true; btn.textContent = en?'Generating…':'Генерируем…';
         try{
           const k = await API.call('/api/keygen/reality', {method:'POST'});
           layer.querySelector('#kgBody').innerHTML = `
             <div class="hint" style="margin-bottom:14px">${I('info',12)}
-              Всё нужное — в одном блоке ниже. Публичный ключ панель выведет из приватного
-              сама, а в хост ключи не вписываются вовсе: раньше их разносили по двум местам,
-              и половинки от разных нажатий этой кнопки давали локацию, которая молча не
-              подключалась.</div>
+              ${en?'Replace only privateKey and shortIds inside the existing inbound’s streamSettings.realitySettings. Preserve target/dest, serverNames and xver (including Selfsteal). This fragment is not a complete realitySettings block. For a new profile, configure its destination and server names separately.':'Замените только privateKey и shortIds в существующем streamSettings.realitySettings инбаунда. Сохраните target/dest, serverNames и xver (включая Selfsteal). Этот фрагмент — не полный блок realitySettings. Для нового профиля отдельно настройте назначение и имена сервера.'}</div>
             <div class="field">
-              <label>Вставьте в профиль, в <code>streamSettings</code> инбаунда</label>
-              <div class="code wrap"><pre>"realitySettings": {
-  "dest": "www.cloudflare.com:443",
-  "serverNames": ["www.cloudflare.com"],
-  "privateKey": "${esc(k.private_key)}",
-  "shortIds": ["${esc(k.short_id)}"]
-}</pre></div>
+              <label>${en?'Key fields for realitySettings':'Поля ключей для realitySettings'}</label>
+              <div class="code wrap"><pre>"privateKey": "${esc(k.private_key)}",
+"shortIds": ["${esc(k.short_id)}"]</pre></div>
               <button class="btn primary sm" style="margin-top:10px"
-                      data-copy='"realitySettings": {
-  "dest": "www.cloudflare.com:443",
-  "serverNames": ["www.cloudflare.com"],
-  "privateKey": "${esc(k.private_key)}",
-  "shortIds": ["${esc(k.short_id)}"]
-}' data-copy-msg="Блок скопирован">${I('copy',12)} Копировать блок</button>
+                      data-copy='"privateKey": "${esc(k.private_key)}",
+"shortIds": ["${esc(k.short_id)}"]' data-copy-msg="${en?'Key fields copied':'Поля ключей скопированы'}">${I('copy',12)} ${en?'Copy key fields':'Копировать поля ключей'}</button>
             </div>
             <div class="field">
-              <label>Публичный ключ <span class="hint" style="margin:0;color:var(--dim2)">только для сверки — копировать никуда не нужно</span></label>
+              <label>${en?'Public key':'Публичный ключ'} <span class="hint" style="margin:0;color:var(--dim2)">${en?'for verification only — no need to copy it elsewhere':'только для сверки — копировать никуда не нужно'}</span></label>
               <div class="copy-block"><span class="txt">${esc(k.public_key)}</span></div>
             </div>`;
-          toast('Пара ключей создана');
-        }catch(e){ toast('Не удалось: '+e.message,'err'); }
-        btn.disabled = false; btn.innerHTML = I('key',13)+' Сгенерировать ещё';
+          toast(en?'Key pair generated':'Пара ключей создана');
+        }catch(e){ toast((en?'Failed: ':'Не удалось: ')+e.message,'err'); }
+        btn.disabled = false; btn.innerHTML = I('key',13)+(en?' Generate another pair':' Сгенерировать ещё');
       });
     }
   });

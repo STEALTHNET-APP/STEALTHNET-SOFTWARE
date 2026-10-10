@@ -537,7 +537,7 @@ Object.assign(DICT, {
   "Добавьте этого бота в рабочую группу и разрешите ему отправлять сообщения.": "Add this bot to your team group and allow it to send messages.",
   "Напишите /chatid в группе или нужной теме. Бот покажет ID группы и темы — перенесите их в поля выше.": "Send /chatid in the group or desired topic. Copy the group and topic IDs returned by the bot into the fields above.",
   "Выберите события, сохраните настройки и отправьте тест.": "Choose events, save settings and send a test.",
-  "Ноды: нет отчёта агента более 3 минут, ошибка VPN-движка, CPU или память от 95%. Также приходят ошибки фоновых задач и сообщения о восстановлении. Повторяющаяся проблема не создаёт новое уведомление каждый цикл.": "Node alerts: no agent report for over 3 minutes, VPN engine errors, or CPU/memory usage of at least 95%. Background task failures and recovery events are also reported. A recurring issue does not send a new notification on every cycle.",
+  "Ноды: нет отчёта агента более 3 минут, ошибка VPN-движка, нормализованная системная нагрузка или память от 95%. Также приходят ошибки фоновых задач и сообщения о восстановлении. Повторяющаяся проблема не создаёт новое уведомление каждый цикл.": "Node alerts: no agent report for over 3 minutes, VPN engine errors, or normalized system load / memory usage of at least 95%. Background task failures and recovery events are also reported. A recurring issue does not send a new notification on every cycle.",
   "Доставку выполняет фоновый сервис, обычно в течение 10 секунд. Полную недоступность сервера нужно отслеживать внешним мониторингом.": "The background service usually delivers messages within 10 seconds. Use external monitoring to detect a complete server outage.",
   "Отправить тест": "Send test",
   "Статус доставки": "Delivery status",
@@ -1034,5 +1034,9 @@ Object.assign(DICT, {
   'Агент ещё не подключён': 'The agent has not connected yet',
   'Получите команду и выполните её на сервере ноды по SSH.': 'Get the command and run it on the node server over SSH.',
   'Сайт на ноде': 'Website on the node',
-  'Скопируйте сейчас. Если закроете окно, нажмите «Команда установки» в карточке ноды.': 'Copy it now. If you close this window, click “Installation command” on the node card.'
+  'Скопируйте сейчас. Если закроете окно, нажмите «Команда установки» в карточке ноды.': 'Copy it now. If you close this window, click “Installation command” on the node card.',
+  'Нормализованная нагрузка': 'Normalized load',
+  'Нормализованная нагрузка от 90%': 'Normalized load of at least 90%',
+  'По нормализованной нагрузке': 'By normalized load'
+
 });

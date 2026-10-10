@@ -520,6 +520,22 @@ async fn qr_image(State(st): State<SubState>, Path(short_id): Path<String>) -> R
         .into_response())
 }
 
+/// Keep the core machine error contract; render only browser subscription errors.
+fn subscription_load_error(error: Error, format: Format, lang: locale::Language) -> Response {
+    let response = error.into_response();
+    if format != Format::WebPage { return response; }
+    let status = response.status();
+    let title = lang.text("Не удалось открыть подписку", "Unable to open subscription");
+    let message = if status == axum::http::StatusCode::NOT_FOUND {
+        lang.text("Проверьте ссылку: откройте свежую ссылку в боте или личном кабинете. Если это не помогло, обратитесь в поддержку.", "Check the link: open a fresh link from the bot or your account. If that does not help, contact support.")
+    } else {
+        lang.text("Повторите попытку позже. Если ошибка повторится, обратитесь в поддержку.", "Try again later. If the error persists, contact support.")
+    };
+    // All content is fixed localized text: never reflect IDs, URLs or source errors.
+    let html = format!("<!doctype html><html lang=\"{}\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>{title}</title></head><body><main><h1>{title}</h1><p>{message}</p></main></body></html>", lang.code());
+    (status, [(header::CONTENT_LANGUAGE, lang.code()), (header::CACHE_CONTROL, "no-store"), (header::VARY, "User-Agent, Accept-Language, Cookie")], Html(html)).into_response()
+}
+
 async fn subscription(
     State(st): State<SubState>,
     Path(short_id): Path<String>,
@@ -532,7 +548,17 @@ async fn subscription(
         .and_then(|v| v.to_str().ok())
         .unwrap_or("");
 
-    let mut data = load(&st.source, &short_id).await?;
+    let mut data = match load(&st.source, &short_id).await {
+        Ok(data) => data,
+        Err(error) => {
+            // Use already available rules only: a source failure must not trigger
+            // more panel calls. Known VPN agents take precedence over Mozilla.
+            let rules = cached_rules(&st).await;
+            let format = matching_rule(&rules, &headers).and_then(rule_format)
+                .unwrap_or_else(|| detect_format(ua));
+            return Ok(subscription_load_error(error, format, lang));
+        }
+    };
     let mut cfg = load_settings(&st).await;
     apply_external_settings(&mut cfg,&data.external_squad["settings"]);
     for host in &mut data.hosts {sn_sub::overrides::apply_host(host,&data.external_squad["hosts"]);}
@@ -598,18 +624,26 @@ async fn subscription(
     let title=cfg.profile_title.clone().unwrap_or_else(||format!("{brand} - {}",data.username));
     if let Some(rule)=matched{policy::apply_headers(&mut hdrs,&rule.response_headers,&data.username,&title);}
     let status=match format{Format::Block=>Some(403),Format::NotFound=>Some(404),Format::Unavailable=>Some(451),_=>None};
-    if let Some(status)=status{return Ok((axum::http::StatusCode::from_u16(status).unwrap(),hdrs,"Доступ к подписке ограничен правилом ответа").into_response())}
+    if let Some(status)=status{hdrs.remove("announce");return Ok((axum::http::StatusCode::from_u16(status).unwrap(),hdrs,"Доступ к подписке ограничен правилом ответа").into_response())}
     if data.status != "active" || data.hosts.is_empty() || over_limit.is_some() || unsupported {
         let reason_key=if over_limit.is_some(){"devices"}else if unsupported{"unsupported"}else{match data.status.as_str(){"expired"=>"expired","limited"=>"limited","disabled"=>"disabled",_=>"no_hosts"}};
         let fallback=if let Some((used,limit))=over_limit{cfg.remark_devices(&data,used as i64,limit as i64)}else if unsupported{"Приложение не передало HWID. Используйте приложение с поддержкой идентификатора устройства.".into()}else{cfg.remark_for(&data)};
         let reasons:Vec<String>=cfg.remark_lists.get(reason_key).map(|v|v.iter().map(|s|fill_placeholders_dev(s,&data,over_limit.map(|(u,l)|(u as i64,l as i64)))).collect()).unwrap_or_else(||vec![fallback]);
         let reason=reasons.join("\n");
+        let fallback_template = if over_limit.is_some() { cfg.remark_devices.as_str() } else if unsupported { "Приложение не передало HWID. Используйте приложение с поддержкой идентификатора устройства." } else { match data.status.as_str() { "expired" => &cfg.remark_expired, "limited" => &cfg.remark_limited, "disabled" => &cfg.remark_disabled, _ => &cfg.remark_no_hosts } };
+        let templates = cfg.remark_lists.get(reason_key).map(|v| v.iter().map(String::as_str).collect::<Vec<_>>()).unwrap_or_else(|| vec![fallback_template]);
+        let notice = templates.iter().map(|s| fill_placeholders_dev(lang.default_text(s), &data, over_limit.map(|(u,l)| (u as i64,l as i64)))).collect::<Vec<_>>().join("\n");
+        // State reasons win over global, external-squad and rule announcements.
+        // Keep machine payloads unchanged; only the human-facing header is localized.
+        hdrs.remove("announce");
+        let announcement = if notice.is_ascii() && notice.bytes().any(|b| b.is_ascii_control()) {
+            use base64::Engine as _;
+            format!("base64:{}", base64::engine::general_purpose::STANDARD.encode(&notice))
+        } else { header_text(&notice) };
+        if let Ok(value) = announcement.parse() { hdrs.insert("announce", value); }
         if format == Format::WebPage {
             let apps=load_apps(&st).await;
             let sub_url=format!("{}/{}",st.config.sub_public_url.trim_end_matches('/'),short_id);
-            let fallback_template = if over_limit.is_some() { cfg.remark_devices.as_str() } else if unsupported { "Приложение не передало HWID. Используйте приложение с поддержкой идентификатора устройства." } else { match data.status.as_str() { "expired" => &cfg.remark_expired, "limited" => &cfg.remark_limited, "disabled" => &cfg.remark_disabled, _ => &cfg.remark_no_hosts } };
-            let templates = cfg.remark_lists.get(reason_key).map(|v| v.iter().map(String::as_str).collect::<Vec<_>>()).unwrap_or_else(|| vec![fallback_template]);
-            let notice = templates.iter().map(|s| fill_placeholders_dev(lang.default_text(s), &data, over_limit.map(|(u,l)| (u as i64,l as i64)))).collect::<Vec<_>>().join("\n");
             return Ok((hdrs,Html(page::render_localized(&data,&brand,&sub_url,&apps,&cfg.page,&notice,lang))).into_response());
         }
         let stubs:Vec<_>=reasons.iter().map(|r|formats::stub_host(r)).collect();

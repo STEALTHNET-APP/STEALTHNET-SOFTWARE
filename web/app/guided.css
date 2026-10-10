@@ -102,3 +102,7 @@ button:disabled{opacity:.5;cursor:not-allowed}.btn:hover{filter:brightness(.98)}
 .language-trigger{letter-spacing:.03em;flex-shrink:0}.header-actions{flex-wrap:nowrap}.language-trigger:focus-visible{outline:3px solid var(--a1);outline-offset:3px}
 .language-trigger{font-family:inherit;font-size:13px;font-weight:600;line-height:1}
 .device-separator .desktop-only{padding-inline:.2em}
+
+/* Keep the full expiry date readable at narrow widths and enlarged text. */
+.subscription-status{box-sizing:border-box;max-width:calc(100% - 8px)}
+.subscription-status>span{min-width:0;white-space:normal;overflow-wrap:anywhere}

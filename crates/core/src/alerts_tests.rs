@@ -59,6 +59,26 @@ async fn team_alert_delivery_lifecycle()->Result<()> {
     sqlx::query("INSERT INTO node_metrics(node_id,cpu_percent,ram_percent) VALUES($1,96,20)").bind(node).execute(&pool).await?;
     scan_nodes(&pool).await?;
     let problem:Option<String>=sqlx::query_scalar("SELECT problem FROM service_incidents WHERE key=$1").bind(format!("node:{node}")).fetch_one(&pool).await?;assert!(problem.is_none());
+    // An open load incident must survive stale reports, missing fields, stale
+    // measurements and a temporarily absent node without creating a recovery.
+    let load_key=format!("load:{node}");
+    let revision:i64=sqlx::query_scalar("SELECT revision FROM service_incidents WHERE key=$1").bind(&load_key).fetch_one(&pool).await?;
+    for mutation in [
+        "UPDATE nodes SET last_seen_at=now()-interval '4 minutes' WHERE id=$1",
+        "UPDATE nodes SET last_seen_at=now() WHERE id=$1",
+        "UPDATE node_metrics SET cpu_percent=NULL WHERE node_id=$1",
+        "UPDATE node_metrics SET cpu_percent=96,ram_percent=NULL WHERE node_id=$1",
+        "UPDATE node_metrics SET ram_percent=20,at=now()-interval '6 minutes' WHERE node_id=$1",
+        "UPDATE nodes SET deleted_at=now() WHERE id=$1",
+    ] {
+        sqlx::query(mutation).bind(node).execute(&pool).await?;
+        scan_nodes(&pool).await?;scan_nodes(&pool).await?;
+        let state:(Option<String>,i64)=sqlx::query_as("SELECT problem,revision FROM service_incidents WHERE key=$1").bind(&load_key).fetch_one(&pool).await?;
+        assert!(state.0.is_some(), "unknown measurements cannot recover: {mutation}");
+        assert_eq!(state.1,revision,"unknown/repeated samples cannot enqueue transitions: {mutation}");
+    }
+    sqlx::query("UPDATE nodes SET deleted_at=NULL WHERE id=$1").bind(node).execute(&pool).await?;
+    sqlx::query("UPDATE node_metrics SET at=now() WHERE node_id=$1").bind(node).execute(&pool).await?;
     for cpu in [90.0f32,80.0] {sqlx::query("UPDATE node_metrics SET cpu_percent=$2 WHERE node_id=$1").bind(node).bind(cpu).execute(&pool).await?;scan_nodes(&pool).await?;
         let problem:Option<String>=sqlx::query_scalar("SELECT problem FROM service_incidents WHERE key=$1").bind(format!("load:{node}")).fetch_one(&pool).await?;assert_eq!(problem.is_some(),cpu>=85.0);}
     sqlx::query("UPDATE nodes SET deleted_at=now() WHERE id=$1").bind(node).execute(&pool).await?;

@@ -1,5 +1,6 @@
 'use strict';
 const CT_EN = Object.freeze({
+  "Не удалось подтвердить результат оформления. Проверьте историю платежей и статус подписки. Если результат неясен, обратитесь в поддержку перед новой оплатой.": "We could not confirm the checkout result. Check your payment history and subscription status. If the result is unclear, contact support before making another payment.",
   "Оформление:": "Theme:",
   ". Изменить тему": ". Change theme",
   "тёмное": "dark",
@@ -110,6 +111,7 @@ const CT_EN = Object.freeze({
   "Срок с бонусом:": "Term including bonus:",
   "дн.": "days",
   "Получить бесплатно": "Activate for free",
+  "Активировать бесплатно": "Activate for free",
   "Оплатить": "Pay",
   "Оплатить ·": "Pay ·",
   "Оплата временно недоступна. Напишите в поддержку — вам помогут с подключением.": "Payments are temporarily unavailable. Contact support for help getting connected.",
